@@ -18,7 +18,7 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
-    // İNTERNET GİDİP GELMESİNİ DİNLE VE YOUTUBE'U KURTAR
+    // İNTERNET GİDİP GELMESİNİ ANLIK DİNLE VE YOUTUBE'U KURTAR
     const handleOnline = () => {
       setOfflineMode(false);
       // İnternet geri geldiğinde YouTube API yüklenmemişse zorla yükle
