@@ -6,7 +6,7 @@ const YouTubeEngine = () => {
   const { 
     currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, 
     setCurrentTime, setDuration, playNext, playPrev, togglePlay, 
-    isVideoMode, activeEngine, downloadedSongs 
+    isVideoMode, activeEngine, downloadedSongs, isOfflineMode
   } = usePlayerStore();
   
   const progressInterval = useRef(null);
@@ -17,7 +17,6 @@ const YouTubeEngine = () => {
     playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1 },
   }), []);
 
-  // HTML5 Motorunu (Audio) Mount edildiğinde Store'a kaydet (Bu sayede Store kendi yönetebilecek)
   useEffect(() => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
@@ -45,7 +44,6 @@ const YouTubeEngine = () => {
     const { activeEngine: currentEngine } = usePlayerStore.getState();
     const player = event.target;
     
-    // Motor HTML5 ise, YouTube'un oynamasına ASLA izin verme
     if (currentEngine !== 'youtube') {
       if (event.data === 1 || event.data === 3) player.pauseVideo(); 
       return; 
@@ -93,6 +91,7 @@ const YouTubeEngine = () => {
     }}>
       {currentSong && (
         <YouTube 
+          key={`yt-${currentSong.id}-${isOfflineMode ? 'off' : 'on'}`} /* ÇEVRİMİÇİ OLUNCA MOTORU ZORLA YENİLER */
           videoId={currentSong.id} 
           opts={opts} 
           onReady={onReady} onStateChange={onStateChange} onEnd={onEnd} onError={onError} 

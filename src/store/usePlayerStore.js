@@ -43,8 +43,6 @@ const usePlayerStore = create((set, get) => ({
   isShuffle: false, isRepeat: false,
   history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
   lyrics: [], isLyricsLoading: false, isVideoMode: false,
-  
-  activeBlobUrl: null, // RAM şişmesini engellemek için çalınan şarkının bellek adresini tutar
 
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
@@ -311,15 +309,14 @@ const usePlayerStore = create((set, get) => ({
     });
 
     // 🚀 ANDROID MEDIAPLAYER ÇÖZÜMÜ: 
-    setTimeout(async () => {
+    setTimeout(() => {
       const html5El = get().html5PlayerRef;
       const ytEl = get().playerRef;
 
       if (nextEngine === 'html5' && html5El && localData) {
         if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
-        // Capacitor'ın kendi ürettiği URL çevrimdışı doğrudan akış (stream) yapar.
-        // Blob'a çevirmeye çalışmak RAM'i şişirip uygulamayı dondurur, bu yüzden direkt bunu kullanıyoruz!
+        // DOĞRUDAN CAPACITOR YEREL URL'Sİ KULLANILIYOR (RAM ŞİŞMEZ, ANINDA AÇILIR)
         let finalSrc = localData.localAudioUrl;
 
         if (html5El.src !== finalSrc) {
@@ -334,6 +331,7 @@ const usePlayerStore = create((set, get) => ({
 
       } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
         if (html5El) html5El.pause();
+        ytEl.playVideo();
       }
     }, 50);
 
