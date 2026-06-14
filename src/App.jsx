@@ -10,6 +10,9 @@ import PlaylistDetail from './pages/PlaylistDetail';
 import AuthModal from './components/AuthModal';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 
+// NATIVE BİLDİRİM İZNİ İÇİN RESMİ EKLENTİYİ İTHAL EDİYORUZ
+import { LocalNotifications } from '@capacitor/local-notifications';
+
 function App() {
   const { initAuth, loading } = useAuthStore();
   const { initOfflineStorage, setOfflineMode } = usePlayerStore();
@@ -18,9 +21,12 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
-    // DÜZELTME: Android 13+ bildirim onay penceresini açıyoruz (Arka planda çalmama sorununu çözer)
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(e => console.error("Bildirim izni istenirken hata oluştu:", e));
+    // DÜZELTME: Android 13+ için gerçek native bildirim izin istemini tetikliyoruz.
+    // Bu izin verildiğinde kilit ekranında bildirim kartı görünecek ve ekran kilitlendiğinde müzik durmayacaktır.
+    if (window.Capacitor) {
+      LocalNotifications.requestPermissions().then((res) => {
+        console.log("Native bildirim izni sonucu:", res);
+      }).catch(e => console.error("Native bildirim izni istenirken hata:", e));
     }
 
     const handleOnline = () => {
