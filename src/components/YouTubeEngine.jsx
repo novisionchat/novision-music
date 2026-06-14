@@ -17,10 +17,12 @@ const YouTubeEngine = () => {
     playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1 },
   }), []);
 
+  // Oynatıcıyı Merkeze Kaydetme (Artık hep sabit olduğu için anında kaydolacak)
   useEffect(() => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
+  // Bildirim ve Kilit Ekranı Kontrolleri
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
@@ -41,11 +43,10 @@ const YouTubeEngine = () => {
   const onReady = (event) => { setPlayerRef(event.target); event.target.setVolume(100); };
   
   const onStateChange = (event) => {
-    // ÇİFT SESİ KESİN OLARAK ENGELLEYEN MANTIK
     const { activeEngine: currentEngine } = usePlayerStore.getState();
     const player = event.target;
     
-    // Eğer motor HTML5 ise, YouTube'un oynamasına asla izin verme
+    // Eğer Offline veya Local çalıyorsa, YouTube kafasına göre oynayamasın!
     if (currentEngine !== 'youtube') {
       if (event.data === 1 || event.data === 3) player.pauseVideo(); 
       return; 
@@ -81,26 +82,6 @@ const YouTubeEngine = () => {
     setDuration(audioRef.current.duration);
   };
 
-  useEffect(() => {
-    if (activeEngine === 'html5' && currentSong && audioRef.current) {
-      const localData = downloadedSongs[currentSong.id];
-      if (localData && localData.localAudioUrl) {
-        if (audioRef.current.src !== localData.localAudioUrl) {
-          audioRef.current.src = localData.localAudioUrl;
-          audioRef.current.load();
-        }
-        audioRef.current.play().catch(e => console.error("Çevrimdışı oynatma hatası:", e));
-      }
-      // HTML5 çalarken YouTube'u kesinlikle durdur
-      if (usePlayerStore.getState().playerRef && typeof usePlayerStore.getState().playerRef.pauseVideo === 'function') {
-         usePlayerStore.getState().playerRef.pauseVideo();
-      }
-    } else if (activeEngine === 'youtube' && audioRef.current) {
-      // YouTube çalarken HTML5'i kesinlikle durdur
-      audioRef.current.pause(); 
-    }
-  }, [currentSong, activeEngine, downloadedSongs]);
-
   useEffect(() => { return () => { if (progressInterval.current) clearInterval(progressInterval.current); }; }, []);
 
   return (
@@ -111,26 +92,27 @@ const YouTubeEngine = () => {
       zIndex: (isVideoMode && activeEngine === 'youtube') ? 5 : -1,
       borderRadius: '8px', overflow: 'hidden'
     }}>
+      {/* Youtube Videosu (İhtiyaca Göre Ekrana Çıkar) */}
       {currentSong && (
-        <>
-          <YouTube 
-            videoId={currentSong.id} 
-            opts={opts} 
-            onReady={onReady} onStateChange={onStateChange} onEnd={onEnd} onError={onError} 
-            className="youtube-react-wrapper" 
-            iframeClassName="youtube-video-fill" 
-          />
-          <audio 
-            ref={audioRef}
-            onPlay={onAudioPlay}
-            onPause={onAudioPause}
-            onEnded={onAudioEnded}
-            onTimeUpdate={onAudioTimeUpdate}
-            onLoadedMetadata={onAudioLoadedMetadata}
-            style={{ display: 'none' }}
-          />
-        </>
+        <YouTube 
+          videoId={currentSong.id} 
+          opts={opts} 
+          onReady={onReady} onStateChange={onStateChange} onEnd={onEnd} onError={onError} 
+          className="youtube-react-wrapper" 
+          iframeClassName="youtube-video-fill" 
+        />
       )}
+      
+      {/* YEREL SES MOTORU (ARTIK HEP SABİT!) Durdur/Başlat gibi butonların bozulmasını önler. */}
+      <audio 
+        ref={audioRef}
+        onPlay={onAudioPlay}
+        onPause={onAudioPause}
+        onEnded={onAudioEnded}
+        onTimeUpdate={onAudioTimeUpdate}
+        onLoadedMetadata={onAudioLoadedMetadata}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };

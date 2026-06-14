@@ -291,12 +291,12 @@ const usePlayerStore = create((set, get) => ({
       newHistory.push(song); newCursor++;
     }
 
-    const isDownloaded = !!state.downloadedSongs[song.id];
+    const localData = state.downloadedSongs[song.id];
+    const isDownloaded = !!localData;
     
-    // KULLANICININ MÜKEMMEL FİKRİ: Eğer Offline'sak ve indirildiyse HTML5 kullan. Diğer her durumda YouTube.
+    // YENİ MANTIK: Offline isek ve indirilmişse HTML5. Değilse her zaman Youtube!
     const nextEngine = (!navigator.onLine && isDownloaded) ? 'html5' : 'youtube';
 
-    // Offline iken indirilmeyen bir şeye tıklandıysa:
     if (nextEngine === 'youtube' && !navigator.onLine) {
       alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
       return; 
@@ -314,6 +314,16 @@ const usePlayerStore = create((set, get) => ({
       currentIndex: index, isPlaying: true, currentTime: 0, 
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
     });
+
+    // MOBİL İÇİN KESİN ÇÖZÜM: HTML5 Motorunu Tıklama Anında Başlat!
+    // Bu sayede Android "Kullanıcı tıklamadı o yüzden oynatamam" hatası vermez.
+    if (nextEngine === 'html5' && state.html5PlayerRef && localData) {
+      if (state.html5PlayerRef.src !== localData.localAudioUrl) {
+        state.html5PlayerRef.src = localData.localAudioUrl;
+        state.html5PlayerRef.load();
+      }
+      state.html5PlayerRef.play().catch(e => console.error("Çevrimdışı oynatma engellendi:", e));
+    }
     
     get().fetchLyrics(song);
 
