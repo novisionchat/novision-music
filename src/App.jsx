@@ -18,16 +18,19 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
+    // DÜZELTME: Android 13+ bildirim onay penceresini açıyoruz (Arka planda çalmama sorununu çözer)
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(e => console.error("Bildirim izni istenirken hata oluştu:", e));
+    }
+
     const handleOnline = () => {
       setOfflineMode(false);
       
-      // İnternet geri geldiğinde eski/başarısız olan iframe script etiketini bulup tamamen temizle
       const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]');
       if (existingScript) {
         existingScript.remove();
       }
 
-      // Tarayıcıyı zorla yeni bir yükleme yapmaya teşvik et
       const tag = document.createElement('script');
       tag.src = "https://www.youtube.com/iframe_api";
       const firstScriptTag = document.getElementsByTagName('script')[0];
