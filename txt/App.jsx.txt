@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import useAuthStore from './store/useAuthStore';
-import usePlayerStore from './store/usePlayerStore'; // EKLENDİ
+import usePlayerStore from './store/usePlayerStore';
 import Home from './pages/Home'; 
 import Search from './pages/Search';
 import Library from './pages/Library';
@@ -12,12 +12,38 @@ import AddToPlaylistModal from './components/AddToPlaylistModal';
 
 function App() {
   const { initAuth, loading } = useAuthStore();
-  const { initOfflineStorage } = usePlayerStore(); // EKLENDİ
+  const { initOfflineStorage, setOfflineMode } = usePlayerStore();
 
   useEffect(() => { 
     initAuth(); 
-    initOfflineStorage(); // Sayfa açılırken indirilen müzikleri yükle
-  }, [initAuth, initOfflineStorage]);
+    initOfflineStorage();
+
+    // İNTERNET GİDİP GELMESİNİ ANLIK DİNLE VE YOUTUBE'U KURTAR
+    const handleOnline = () => {
+      setOfflineMode(false);
+      // İnternet geri geldiğinde YouTube API yüklenmemişse zorla yükle
+      if (!window.YT) {
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        if (firstScriptTag) {
+          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        } else {
+          document.head.appendChild(tag);
+        }
+      }
+    };
+    
+    const handleOffline = () => setOfflineMode(true);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [initAuth, initOfflineStorage, setOfflineMode]);
 
   if (loading) return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>Yükleniyor...</div>;
 

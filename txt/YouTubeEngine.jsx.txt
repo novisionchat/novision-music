@@ -6,7 +6,7 @@ const YouTubeEngine = () => {
   const { 
     currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, 
     setCurrentTime, setDuration, playNext, playPrev, togglePlay, 
-    isVideoMode, activeEngine, downloadedSongs 
+    isVideoMode, activeEngine, downloadedSongs, isOfflineMode
   } = usePlayerStore();
   
   const progressInterval = useRef(null);
@@ -17,16 +17,17 @@ const YouTubeEngine = () => {
     playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1 },
   }), []);
 
-  // HTML5 Motorunu (Audio) Mount edildiğinde Store'a kaydet (Bu sayede Store kendi yönetebilecek)
   useEffect(() => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
+  // ÇÖKMEYEN, NATIVE ARKA PLAN BİLDİRİMİ (Sadece Web Standartları)
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
       const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
 
+      // Android sistemi bu API'yi gördüğü an kilit ekranına otomatik müzik çalar koyar ve WebView'ı dondurmaz!
       navigator.mediaSession.metadata = new MediaMetadata({ 
         title: currentSong.title, 
         artist: currentSong.channel, 
@@ -45,7 +46,6 @@ const YouTubeEngine = () => {
     const { activeEngine: currentEngine } = usePlayerStore.getState();
     const player = event.target;
     
-    // Motor HTML5 ise, YouTube'un oynamasına ASLA izin verme
     if (currentEngine !== 'youtube') {
       if (event.data === 1 || event.data === 3) player.pauseVideo(); 
       return; 
@@ -61,12 +61,8 @@ const YouTubeEngine = () => {
     }
   };
   
-  const onEnd = () => { 
-    if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); 
-  };
-  const onError = () => { 
-    if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); 
-  };
+  const onEnd = () => { if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); };
+  const onError = () => { if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); };
 
   const onAudioPlay = () => { if (usePlayerStore.getState().activeEngine === 'html5') setPlaying(true); };
   const onAudioPause = () => { if (usePlayerStore.getState().activeEngine === 'html5') setPlaying(false); };
@@ -93,6 +89,7 @@ const YouTubeEngine = () => {
     }}>
       {currentSong && (
         <YouTube 
+          key={`yt-engine-${currentSong.id}-${isOfflineMode ? 'off' : 'on'}`} 
           videoId={currentSong.id} 
           opts={opts} 
           onReady={onReady} onStateChange={onStateChange} onEnd={onEnd} onError={onError} 
@@ -108,6 +105,8 @@ const YouTubeEngine = () => {
         onTimeUpdate={onAudioTimeUpdate}
         onLoadedMetadata={onAudioLoadedMetadata}
         style={{ display: 'none' }}
+        playsInline
+        preload="auto"
       />
     </div>
   );

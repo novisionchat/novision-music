@@ -15,7 +15,15 @@ const AddToPlaylistModal = () => {
   const [isLocalCreate, setIsLocalCreate] = useState(!navigator.onLine);
 
   useEffect(() => {
-    if (!user || !isAddModalOpen || !navigator.onLine) return;
+    setIsLocalCreate(!navigator.onLine);
+    if (!isAddModalOpen) return;
+    
+    // Çevrimdışıysan bulutu çekmeye çalışma, sadece yerellerle devam et
+    if (!user || !navigator.onLine) {
+      setPlaylists([]);
+      return;
+    }
+
     const fetchPlaylists = async () => {
       setLoading(true);
       const snap = await get(ref(db, `users/${user.uid}/playlists`));
@@ -49,9 +57,13 @@ const AddToPlaylistModal = () => {
       return;
     }
 
-    await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
-    alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
-    closeAddModal();
+    if (navigator.onLine) {
+      await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
+      alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
+      closeAddModal();
+    } else {
+      alert("Bulut listesine eklemek için internet bağlantısı gerekiyor.");
+    }
   };
 
   const handleQuickCreate = async (e) => {
@@ -108,12 +120,16 @@ const AddToPlaylistModal = () => {
         )}
 
         <form onSubmit={handleQuickCreate} style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {user && navigator.onLine && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
-              <input type="checkbox" checked={isLocalCreate} onChange={(e) => setIsLocalCreate(e.target.checked)} />
-              Yerel (Çevrimdışı) Liste Oluştur
-            </label>
-          )}
+          {/* Her zaman görünür, sadece çevrimdışıysa zorunlu işaretli ve kilitli olur */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
+            <input 
+              type="checkbox" 
+              checked={isLocalCreate || !navigator.onLine} 
+              disabled={!navigator.onLine}
+              onChange={(e) => setIsLocalCreate(e.target.checked)} 
+            />
+            Yerel (Çevrimdışı) Liste Oluştur {!navigator.onLine && "(Zorunlu)"}
+          </label>
           <div style={{ display: 'flex', gap: '10px' }}>
             <input type="text" className="form-input" placeholder="Yeni çalma listesi adı..." value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} style={{ margin: 0, padding: '10px', flex: 1 }} />
             <button type="submit" className="primary-btn" style={{ width: 'auto', padding: '0 15px', whiteSpace: 'nowrap', fontSize: '14px' }}>Oluştur</button>

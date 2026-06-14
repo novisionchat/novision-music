@@ -65,52 +65,88 @@ const usePlayerStore = create((set, get) => ({
 
   initOfflineStorage: async () => {
     try {
-      let metadata = {}; let lPlaylists = []; let loadedSongs = {};
+      let metadata = {}; 
+      let lPlaylists = []; 
+      let loadedSongs = {};
 
       if (window.Capacitor) {
         const { Filesystem, Directory } = await import('@capacitor/filesystem');
-        metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
-        lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
+        
+        // 1. Aşama: Metadata ve Yerel Çalma Listelerini Bağımsız Yükle (Zustand Çökmesini Önler)
+        try {
+          metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
+        } catch (e) { console.error("Metadata yükleme hatası:", e); }
 
-        const result = await Filesystem.readdir({ path: '', directory: Directory.Data });
-        for (let file of result.files) {
-          if (file.name.endsWith('.mp3')) {
-            const id = file.name.replace('.mp3', '');
-            const audioUri = await Filesystem.getUri({ path: file.name, directory: Directory.Data });
-            
-            let localThumbUrl = null;
-            if (result.files.some(f => f.name === `${id}_thumb.jpg`)) {
-              const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-              localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
+        try {
+          lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
+        } catch (e) { console.error("Yerel çalma listesi yükleme hatası:", e); }
+
+        // Dosya okuma aşaması patlasa dahi playlistlerin ekranda görünmesini garantiye alıyoruz
+        set({ downloadedMetadata: metadata, localPlaylists: lPlaylists });
+
+        // 2. Aşama: İndirilen MP3 Dosyalarını Listele ve Map Et
+        try {
+          const result = await Filesystem.readdir({ path: '', directory: Directory.Data });
+          if (result && result.files) {
+            for (let file of result.files) {
+              const fileName = typeof file === 'string' ? file : file.name;
+              if (fileName && fileName.endsWith('.mp3')) {
+                const id = fileName.replace('.mp3', '');
+                const audioUri = await Filesystem.getUri({ path: fileName, directory: Directory.Data });
+                
+                let localThumbUrl = null;
+                const hasThumb = result.files.some(f => {
+                  const fName = typeof f === 'string' ? f : f.name;
+                  return fName === `${id}_thumb.jpg`;
+                });
+
+                if (hasThumb) {
+                  try {
+                    const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
+                    localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
+                  } catch (err) { console.error("Küçük resim okuma hatası:", err); }
+                }
+
+                loadedSongs[id] = {
+                  localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
+                  localThumbUrl: localThumbUrl || '/icon.png',
+                  metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
+                };
+              }
             }
-
-            loadedSongs[id] = {
-              localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
-              localThumbUrl: localThumbUrl,
-              metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
-            };
           }
+          set({ downloadedSongs: loadedSongs });
+        } catch (dirError) {
+          console.warn("İndirilen müzik klasörü henüz boş veya okunamadı:", dirError);
         }
+
       } else {
-        metadata = (await localforage.getItem('downloaded_metadata')) || {};
-        lPlaylists = (await localforage.getItem('local_playlists')) || [];
-        const keys = await localforage.keys();
-        for (let id of keys) {
-          if (id.endsWith('-thumb') || id === 'downloaded_metadata' || id === 'local_playlists') continue;
-          const blob = await localforage.getItem(id);
-          const thumbBlob = await localforage.getItem(`${id}-thumb`);
-          if (blob) {
-            const localThumbUrl = thumbBlob ? URL.createObjectURL(thumbBlob) : null;
-            loadedSongs[id] = { 
-              localAudioUrl: URL.createObjectURL(blob), 
-              localThumbUrl: localThumbUrl,
-              metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
-            }; 
+        // Tarayıcı/PWA Akışı
+        try {
+          metadata = (await localforage.getItem('downloaded_metadata')) || {};
+          lPlaylists = (await localforage.getItem('local_playlists')) || [];
+          set({ downloadedMetadata: metadata, localPlaylists: lPlaylists });
+
+          const keys = await localforage.keys();
+          for (let id of keys) {
+            if (id.endsWith('-thumb') || id === 'downloaded_metadata' || id === 'local_playlists') continue;
+            const blob = await localforage.getItem(id);
+            const thumbBlob = await localforage.getItem(`${id}-thumb`);
+            if (blob) {
+              const localThumbUrl = thumbBlob ? URL.createObjectURL(thumbBlob) : null;
+              loadedSongs[id] = { 
+                localAudioUrl: URL.createObjectURL(blob), 
+                localThumbUrl: localThumbUrl || '/icon.png',
+                metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
+              }; 
+            }
           }
+          set({ downloadedSongs: loadedSongs });
+        } catch (webError) {
+          console.error("Tarayıcı önbellek yükleme hatası:", webError);
         }
       }
-      set({ downloadedSongs: loadedSongs, downloadedMetadata: metadata, localPlaylists: lPlaylists });
-    } catch (e) { console.error("Offline DB yüklenirken hata:", e); }
+    } catch (e) { console.error("Offline DB yüklenirken genel hata:", e); }
   },
 
   saveLocalPlaylists: async (newPlaylists) => {
@@ -294,7 +330,6 @@ const usePlayerStore = create((set, get) => ({
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
     
-    // Offline ise kesin HTML5, Online ise her zaman Youtube
     const nextEngine = (!navigator.onLine && isDownloaded) ? 'html5' : 'youtube';
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
@@ -308,7 +343,6 @@ const usePlayerStore = create((set, get) => ({
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
     });
 
-    // 🚀 ANDROID MEDIAPLAYER ÇÖZÜMÜ: 
     setTimeout(() => {
       const html5El = get().html5PlayerRef;
       const ytEl = get().playerRef;
@@ -316,16 +350,19 @@ const usePlayerStore = create((set, get) => ({
       if (nextEngine === 'html5' && html5El && localData) {
         if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
-        // DOĞRUDAN CAPACITOR YEREL URL'Sİ KULLANILIYOR (RAM ŞİŞMEZ, ANINDA AÇILIR)
         let finalSrc = localData.localAudioUrl;
 
-        if (html5El.src !== finalSrc) {
+        // BROWSER YANILSAMASINI ÖNLER: Tarayıcılar absolute path normalizasyonu yapar.
+        // Bu yüzden .src karşılaştırmak yerine 'data-song-id' kontrolü yapıyoruz.
+        const isSameSong = html5El.getAttribute('data-song-id') === song.id;
+        if (!isSameSong) {
+          html5El.setAttribute('data-song-id', song.id);
           html5El.src = finalSrc;
           html5El.load();
         }
         
         html5El.play().catch(e => {
-          console.error("HTML5 Play Hatası:", e);
+          console.error("HTML5 Oynatma Hatası:", e);
           set({ isPlaying: false });
         });
 
