@@ -1,5 +1,10 @@
 {
   "appId": "com.novision.music",
   "appName": "Novision Music",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": ["*"]
+  }
 }

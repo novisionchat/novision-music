@@ -18,32 +18,26 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
-    // 1. İNTERNET BAĞLANTISINI ANLIK DİNLE (Çevrimdışı/Çevrimiçi geçişi için)
-    const handleOnline = () => setOfflineMode(false);
+    // İNTERNET GİDİP GELMESİNİ DİNLE VE YOUTUBE'U KURTAR
+    const handleOnline = () => {
+      setOfflineMode(false);
+      // İnternet geri geldiğinde YouTube API yüklenmemişse zorla yükle
+      if (!window.YT) {
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        if (firstScriptTag) {
+          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        } else {
+          document.head.appendChild(tag);
+        }
+      }
+    };
+    
     const handleOffline = () => setOfflineMode(true);
+    
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
-    // 2. ARKA PLAN MODUNU DEVREYE SOK (deviceready beklenmek zorundadır)
-    document.addEventListener('deviceready', () => {
-      if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
-        const bgMode = window.cordova.plugins.backgroundMode;
-        bgMode.setDefaults({
-            title: 'Novision Music',
-            text: 'Arka planda çalıyor',
-            icon: 'icon',
-            color: '000000',
-            resume: true,
-            hidden: false,
-        });
-        
-        bgMode.on('activate', () => {
-            bgMode.disableWebViewOptimizations(); // Ekran kapanınca WebView'ın dondurulmasını engeller
-        });
-        
-        bgMode.enable();
-      }
-    }, false);
 
     return () => {
       window.removeEventListener('online', handleOnline);

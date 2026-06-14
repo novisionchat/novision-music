@@ -4,7 +4,7 @@ import usePlayerStore from '../store/usePlayerStore';
 
 const YouTubeEngine = () => {
   const { 
-    currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, 
+    currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, isPlaying,
     setCurrentTime, setDuration, playNext, playPrev, togglePlay, 
     isVideoMode, activeEngine, downloadedSongs, isOfflineMode
   } = usePlayerStore();
@@ -21,11 +21,14 @@ const YouTubeEngine = () => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
+  // ARKA PLAN MEDYA KONTROLLERİ VE BİLDİRİMİ (ANDROID 14 UYUMLU)
   useEffect(() => {
-    if ('mediaSession' in navigator && currentSong) {
-      const localData = downloadedSongs[currentSong.id];
-      const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
+    if (!currentSong) return;
+    const localData = downloadedSongs[currentSong.id];
+    const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
 
+    // 1. Tarayıcı (Web) Media Session
+    if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({ 
         title: currentSong.title, 
         artist: currentSong.channel, 
@@ -36,7 +39,42 @@ const YouTubeEngine = () => {
       navigator.mediaSession.setActionHandler('previoustrack', playPrev);
       navigator.mediaSession.setActionHandler('nexttrack', playNext);
     }
+
+    // 2. APK (Capacitor) Yerel Müzik Bildirimi (Arka planda dondurulmayı engeller)
+    if (window.MusicControls) {
+      window.MusicControls.create({
+        track: currentSong.title,
+        artist: currentSong.channel,
+        cover: displayThumb,
+        isPlaying: true,
+        dismissable: false,
+        hasPrev: true,
+        hasNext: true,
+        hasClose: false
+      }, () => {}, () => {});
+
+      const events = (action) => {
+        const message = JSON.parse(action).message;
+        switch(message) {
+          case 'music-controls-next': playNext(); break;
+          case 'music-controls-previous': playPrev(); break;
+          case 'music-controls-pause': togglePlay(); break;
+          case 'music-controls-play': togglePlay(); break;
+          case 'music-controls-destroy': togglePlay(); break;
+          default: break;
+        }
+      };
+      window.MusicControls.subscribe(events);
+      window.MusicControls.listen();
+    }
   }, [currentSong, togglePlay, playPrev, playNext, downloadedSongs]);
+
+  // Oynat/Duraklat durumunu bildirime yansıt
+  useEffect(() => {
+    if (window.MusicControls) {
+      window.MusicControls.updateIsPlaying(isPlaying);
+    }
+  }, [isPlaying]);
 
   const onReady = (event) => { setPlayerRef(event.target); event.target.setVolume(100); };
   
@@ -59,12 +97,8 @@ const YouTubeEngine = () => {
     }
   };
   
-  const onEnd = () => { 
-    if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); 
-  };
-  const onError = () => { 
-    if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); 
-  };
+  const onEnd = () => { if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); };
+  const onError = () => { if (usePlayerStore.getState().activeEngine === 'youtube') playNext(); };
 
   const onAudioPlay = () => { if (usePlayerStore.getState().activeEngine === 'html5') setPlaying(true); };
   const onAudioPause = () => { if (usePlayerStore.getState().activeEngine === 'html5') setPlaying(false); };
@@ -91,7 +125,7 @@ const YouTubeEngine = () => {
     }}>
       {currentSong && (
         <YouTube 
-          key={`yt-${currentSong.id}-${isOfflineMode ? 'off' : 'on'}`} /* ÇEVRİMİÇİ OLUNCA MOTORU ZORLA YENİLER */
+          key={`yt-engine-${currentSong.id}-${isOfflineMode ? 'off' : 'on'}`} 
           videoId={currentSong.id} 
           opts={opts} 
           onReady={onReady} onStateChange={onStateChange} onEnd={onEnd} onError={onError} 
