@@ -18,19 +18,23 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
-    // İNTERNET GİDİP GELMESİNİ ANLIK DİNLE VE YOUTUBE'U KURTAR
     const handleOnline = () => {
       setOfflineMode(false);
-      // İnternet geri geldiğinde YouTube API yüklenmemişse zorla yükle
-      if (!window.YT) {
-        const tag = document.createElement('script');
-        tag.src = "https://www.youtube.com/iframe_api";
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        if (firstScriptTag) {
-          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        } else {
-          document.head.appendChild(tag);
-        }
+      
+      // İnternet geri geldiğinde eski/başarısız olan iframe script etiketini bulup tamamen temizle
+      const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]');
+      if (existingScript) {
+        existingScript.remove();
+      }
+
+      // Tarayıcıyı zorla yeni bir yükleme yapmaya teşvik et
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      if (firstScriptTag) {
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      } else {
+        document.head.appendChild(tag);
       }
     };
     
