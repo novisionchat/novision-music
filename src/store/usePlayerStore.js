@@ -43,6 +43,8 @@ const usePlayerStore = create((set, get) => ({
   isShuffle: false, isRepeat: false,
   history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
   lyrics: [], isLyricsLoading: false, isVideoMode: false,
+  
+  activeBlobUrl: null, // RAM şişmesini engellemek için çalınan şarkının bellek adresini tutar
 
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
@@ -308,26 +310,48 @@ const usePlayerStore = create((set, get) => ({
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
     });
 
-    // 🔴 KRİTİK ÇÖZÜM: Oynatma komutunu, React render'ı tamamlanıp DOM hazır olduktan 50ms SONRA çalıştır.
-    // Bu sayede çift tetiklenme ve AbortError önlenir, UI kilitlenmez.
-    setTimeout(() => {
+    // 🚀 ANDROID MEDIAPLAYER ÇÖZÜMÜ: 
+    setTimeout(async () => {
       const html5El = get().html5PlayerRef;
       const ytEl = get().playerRef;
 
       if (nextEngine === 'html5' && html5El && localData) {
-        if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); // Youtube'u sustur
+        if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
-        if (html5El.src !== localData.localAudioUrl) {
-          html5El.src = localData.localAudioUrl;
+        let finalSrc = localData.localAudioUrl;
+
+        // EĞER CAPACITOR'DAYSAN (APK İSEN) ŞARKIYI AĞDAN DEĞİL SANAL BELLEKTEN ÇAL
+        if (window.Capacitor) {
+          try {
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');
+            const file = await Filesystem.readFile({ path: `${song.id}.mp3`, directory: Directory.Data });
+            
+            // RAM Yönetimi: Eski bellek sızıntısını temizle
+            if (get().activeBlobUrl) {
+              URL.revokeObjectURL(get().activeBlobUrl);
+            }
+
+            // Dosyayı Blob'a çevirip Android oynatıcısına saf dosya olarak veriyoruz (İnternet kilitlerine takılmaz!)
+            const res = await fetch(`data:audio/mp3;base64,${file.data}`);
+            const blob = await res.blob();
+            finalSrc = URL.createObjectURL(blob);
+            set({ activeBlobUrl: finalSrc });
+
+          } catch(e) { console.error("Blob dönüştürme hatası:", e); }
+        }
+
+        if (html5El.src !== finalSrc) {
+          html5El.src = finalSrc;
           html5El.load();
         }
         
         html5El.play().catch(e => {
           console.error("HTML5 Play Hatası:", e);
-          set({ isPlaying: false }); // Eğer bir hata çıkarsa UI'ı sahte "çalıyor" durumundan kurtar.
+          set({ isPlaying: false });
         });
+
       } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
-        if (html5El) html5El.pause(); // HTML5'i sustur
+        if (html5El) html5El.pause();
       }
     }, 50);
 
