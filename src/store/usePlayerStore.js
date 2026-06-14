@@ -107,7 +107,7 @@ const usePlayerStore = create((set, get) => ({
 
                 loadedSongs[id] = {
                   localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
-                  localNativeUrl: audioUri.uri, // EXO PLAYER İÇİN HAM file:/// ADRESİ
+                  localNativeUrl: audioUri.uri,
                   localThumbUrl: localThumbUrl || '/icon.png',
                   metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
                 };
@@ -228,7 +228,7 @@ const usePlayerStore = create((set, get) => ({
               await Filesystem.writeFile({ path: `${song.id}.mp3`, data: base64Audio, directory: Directory.Data });
               const audioUri = await Filesystem.getUri({ path: `${song.id}.mp3`, directory: Directory.Data });
               localAudioUrl = window.Capacitor.convertFileSrc(audioUri.uri);
-              localNativeUrl = audioUri.uri; // HAM file:/// URI KOPYASI ALINIYOR
+              localNativeUrl = audioUri.uri;
 
               if (thumbBlob) {
                 const base64Thumb = await blobToBase64(thumbBlob);
@@ -252,7 +252,7 @@ const usePlayerStore = create((set, get) => ({
                   ...s.downloadedSongs, 
                   [song.id]: { 
                     localAudioUrl, 
-                    localNativeUrl, // YENI INDIRILEN ŞARKIDA DA KAYDEDİYORUZ
+                    localNativeUrl, 
                     localThumbUrl: localThumbUrl || song.thumbnail, 
                     metadata: newMetadata 
                   } 
@@ -337,8 +337,9 @@ const usePlayerStore = create((set, get) => ({
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
     
-    // Şarkı indirilmişse, internet olsa dahi ExoPlayer kullanarak çal!
-    const nextEngine = isDownloaded ? 'html5' : 'youtube';
+    // DÜZELTME: İndirilen şarkılar SADECE çevrimdışı (isOfflineMode) iken ExoPlayer ile açılır.
+    // Çevrimiçi iken indirilmiş olsa bile online YouTube motoru çalışır (Video ve akıllı oynatma için).
+    const nextEngine = (get().isOfflineMode && isDownloaded) ? 'html5' : 'youtube';
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
       alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
@@ -368,15 +369,20 @@ const usePlayerStore = create((set, get) => ({
           try {
             await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
 
-            // DÜZELTME: WebView localhost adresi yerine raw file:/// (localNativeUrl) basılıyor!
             const nativeSource = localData.localNativeUrl || localData.localAudioUrl;
+
+            // DÜZELTME: Base64 kapağı Android bildirim alanına göndermek 'TransactionTooLargeException'
+            // hatasıyla arka plan servisini çökertir. Çevrimdışı kapak Base64 ise hafif '/icon.png' kullanıyoruz.
+            const nativeArtwork = localData.localThumbUrl && !localData.localThumbUrl.startsWith('data:') 
+              ? localData.localThumbUrl 
+              : '/icon.png';
 
             await AudioPlayer.create({
               audioId: 'novision-track',
               audioSource: nativeSource,
               friendlyTitle: song.title,
               artistName: song.channel,
-              artworkSource: localData.localThumbUrl || '/icon.png',
+              artworkSource: nativeArtwork, // Güvenli hafif görsel
               useForNotification: true,
               isBackgroundMusic: false,
               loop: false,
@@ -405,7 +411,6 @@ const usePlayerStore = create((set, get) => ({
                   set({ currentTime: timeRes.currentTime });
                 }
                 
-                // DÜZELTME: ExoPlayer asenkron yüklenirken eksi dönen sürenin arayüzü bozmasını engelliyoruz
                 if (durRes && durRes.duration !== undefined && durRes.duration > 0) {
                   set({ duration: durRes.duration });
                 }
