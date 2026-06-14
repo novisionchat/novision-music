@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { ref, get, set as firebaseSet } from 'firebase/database';
+// BURASI DÜZELTİLDİ: get -> firebaseGet olarak içeri aktarıldı (İsim çakışmasını engellemek için)
+import { ref, get as firebaseGet, set as firebaseSet } from 'firebase/database';
 
-const useAuthStore = create((set, get) => ({
+const useAuthStore = create((set, getStore) => ({
   user: null,
   profile: null,
   loading: true,
@@ -12,43 +13,43 @@ const useAuthStore = create((set, get) => ({
   setAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
 
   initAuth: () => {
-    let isTimeout = false;
+    // 1. ADIM: Uygulama açılır açılmaz yerel (önbelleklenmiş) veriyi UI'a bas
+    const cachedUser = JSON.parse(localStorage.getItem('novision_user') || 'null');
+    const cachedProfile = JSON.parse(localStorage.getItem('novision_profile') || 'null');
     
-    // OFFLINE MOD İÇİN GÜVENLİK: Eğer 3 saniye içinde Firebase cevap vermezse (veya internet kapalıysa) yerel veriyi kullan
-    const timeoutId = setTimeout(() => {
-      if (get().loading) {
-        isTimeout = true;
-        const cachedUser = JSON.parse(localStorage.getItem('novision_user') || 'null');
-        const cachedProfile = JSON.parse(localStorage.getItem('novision_profile') || 'null');
-        set({ user: cachedUser, profile: cachedProfile, loading: false });
-      }
+    if (cachedUser) {
+      set({ user: cachedUser, profile: cachedProfile, loading: false });
+    }
+
+    // 2. ADIM: 3 saniye sonra hala "yükleniyor" ekranındaysa zorla kaldır
+    setTimeout(() => {
+      if (getStore().loading) set({ loading: false });
     }, 3000);
 
+    // 3. ADIM: Firebase'i dinle ve asıl veriyi çek
     onAuthStateChanged(auth, async (currentUser) => {
-      clearTimeout(timeoutId);
       if (currentUser) {
-        // Çevrimdışı kullanım için basit kullanıcı bilgilerini sakla
         localStorage.setItem('novision_user', JSON.stringify({ uid: currentUser.uid, email: currentUser.email }));
         
         try {
           if (navigator.onLine) {
-            const snapshot = await get(ref(db, `users/${currentUser.uid}`));
+            // BURADAKİ ÇAKIŞMA ÇÖZÜLDÜ: Artık firebaseGet kullanıyoruz!
+            const snapshot = await firebaseGet(ref(db, `users/${currentUser.uid}`));
             const prof = snapshot.val() || {};
-            localStorage.setItem('novision_profile', JSON.stringify(prof)); // Profili yedekle
-            if (!isTimeout) set({ user: currentUser, profile: prof, loading: false });
+            
+            localStorage.setItem('novision_profile', JSON.stringify(prof));
+            set({ user: currentUser, profile: prof, loading: false });
           } else {
-            // İnternet yoksa yedeği yükle
-            const cachedProfile = JSON.parse(localStorage.getItem('novision_profile') || '{}');
-            if (!isTimeout) set({ user: currentUser, profile: cachedProfile, loading: false });
+            set({ user: currentUser, profile: cachedProfile || {}, loading: false });
           }
         } catch (error) {
-          const cachedProfile = JSON.parse(localStorage.getItem('novision_profile') || '{}');
-          if (!isTimeout) set({ user: currentUser, profile: cachedProfile, loading: false });
+          console.error("Profil çekme hatası:", error);
+          set({ user: currentUser, profile: cachedProfile || {}, loading: false });
         }
       } else {
         localStorage.removeItem('novision_user');
         localStorage.removeItem('novision_profile');
-        if (!isTimeout) set({ user: null, profile: null, loading: false, isAuthModalOpen: navigator.onLine });
+        set({ user: null, profile: null, loading: false, isAuthModalOpen: navigator.onLine });
       }
     });
   },
@@ -61,13 +62,20 @@ const useAuthStore = create((set, get) => ({
   signup: async (email, password, username) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     const newUser = { username, email, avatar: '/icon.png' };
+    
     await firebaseSet(ref(db, `users/${cred.user.uid}`), newUser);
-    set({ profile: newUser, isAuthModalOpen: false });
+    
+    localStorage.setItem('novision_user', JSON.stringify({ uid: cred.user.uid, email: cred.user.email }));
+    localStorage.setItem('novision_profile', JSON.stringify(newUser));
+    
+    set({ user: cred.user, profile: newUser, isAuthModalOpen: false });
   },
 
   logout: async () => {
     await signOut(auth);
-    set({ isAuthModalOpen: true });
+    localStorage.removeItem('novision_user');
+    localStorage.removeItem('novision_profile');
+    set({ isAuthModalOpen: true, user: null, profile: null });
   }
 }));
 

@@ -38,17 +38,15 @@ const PlaylistDetail = () => {
   const isLocal = id.startsWith('local_');
   const isDownloadedFolder = id === 'downloaded';
   const isMyPlaylist = isLocal || (user && ownerId === user.uid);
-  const canEdit = !isDownloadedFolder && isMyPlaylist; // İndirilenler klasöründe sıra ve isim değiştirilemez.
+  const canEdit = !isDownloadedFolder && isMyPlaylist;
 
   useEffect(() => {
     if (isDownloadedFolder) {
-      // İndirilen şarkılar klasörü dinamik doluyor
       const dSongs = Object.values(downloadedSongs).map(d => ({ ...d.metadata, uniqueId: `${d.metadata.id}-dl` }));
       setPlaylist({ name: 'İndirilen Şarkılar', songs: dSongs });
       setSongs(dSongs);
       setEditNameValue('İndirilen Şarkılar');
     } else if (isLocal) {
-      // Yerel Playlist
       const pl = localPlaylists.find(p => p.id === id);
       if (pl) {
         setPlaylist(pl);
@@ -56,7 +54,6 @@ const PlaylistDetail = () => {
         setEditNameValue(pl.name);
       }
     } else if (ownerId && navigator.onLine) {
-      // Bulut (Firebase) Playlist
       const fetchPlaylist = async () => {
         const snap = await get(ref(db, `users/${ownerId}/playlists/${id}`));
         if (snap.exists()) {
@@ -81,7 +78,6 @@ const PlaylistDetail = () => {
 
   const handleSaveEdit = async () => {
     if (!canEdit) return;
-
     if (isLocal) {
       updateLocalPlaylistSongs(id, songs);
       if (editNameValue.trim() !== "" && editNameValue !== playlist.name) {
@@ -109,7 +105,7 @@ const PlaylistDetail = () => {
     playSong(songs[startIndex], songs, startIndex);
     
     if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder) {
-      await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: songs[0]?.thumbnail || '/icon.png' });
+      await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: downloadedSongs[songs[0]?.id]?.localThumbUrl || songs[0]?.thumbnail || '/icon.png' });
     }
   };
 
@@ -227,6 +223,9 @@ const PlaylistDetail = () => {
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
 
+                    // Kapak Fotoğrafını Doğru Kaynaktan Çek
+                    const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
+
                     return (
                       <Draggable key={song.uniqueId} draggableId={song.uniqueId} index={trueIndex !== -1 ? trueIndex : displayIndex} isDragDisabled={!isEditMode || isDownloadMode}>
                         {(provided, snapshot) => (
@@ -238,7 +237,7 @@ const PlaylistDetail = () => {
                             )}
 
                             <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
-                              <img src={song.thumbnail} alt={song.title} className="song-thumb" />
+                              <img src={rowThumb} alt={song.title} className="song-thumb" />
                               {!isEditMode && !isDownloadMode && <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>}
                             </div>
 

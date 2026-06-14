@@ -3,23 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icon.png" />
-    <!-- Apple (iOS) Cihazlar İçin PWA İkonu -->
     <link rel="apple-touch-icon" href="/icon.png" />
-    
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#000000">
     <meta name="description" content="Novision Music Player">
     <title>Novision Music</title>
     
-    <!-- Google Fonts & Material Icons -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- YEREL FONT DOSYAMIZ (OFFLINE DESTEKLİ) -->
+    <link rel="stylesheet" href="/fonts.css">
+    <!-- Google Material Icons (PWA önbelleği ile çalışır) -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>
-    <!-- YouTube IFrame API'yi index.html üzerinden yüklemek en güvenlisidir -->
     <script src="https://www.youtube.com/iframe_api"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>

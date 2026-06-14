@@ -53,7 +53,7 @@ const NowPlayingPanel = () => {
   };
 
   const localData = downloadedSongs[currentSong.id];
-  const displayThumb = (activeEngine === 'html5' && localData?.localThumbUrl) ? localData.localThumbUrl : currentSong.thumbnail;
+  const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
   
   const isDownloaded = !!localData;
   const isDownloading = downloadQueue.includes(currentSong.id);
@@ -113,8 +113,6 @@ const NowPlayingPanel = () => {
 
         {!isLyricsExpanded && (
           <div className="panel-actions">
-            
-            {/* İNDİRME, SİLME VE İPTAL ETME MANTIĞI */}
             {isDownloaded ? (
               <button className="icon-btn" title="Cihazdan Sil" onClick={() => {
                 if(window.confirm("İndirilen şarkı silinsin mi?")) deleteDownloadedSong(currentSong.id);
@@ -123,7 +121,6 @@ const NowPlayingPanel = () => {
               </button>
             ) : isDownloading ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {/* DÜZENLENDİ: Yüzde sıfırsa "İndiriliyor..." yazacak, değilse yüzdeyi gösterecek */}
                 <span style={{ fontSize: '13px', color: 'var(--accent)', fontWeight: 'bold' }}>
                   {progress > 0 ? `%${progress}` : "İndiriliyor..."}
                 </span>
