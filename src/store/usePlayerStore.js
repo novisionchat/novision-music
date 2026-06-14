@@ -294,19 +294,12 @@ const usePlayerStore = create((set, get) => ({
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
     
-    // YENİ MANTIK: Offline isek ve indirilmişse HTML5. Değilse her zaman Youtube!
+    // Offline ise kesin HTML5, Online ise her zaman Youtube
     const nextEngine = (!navigator.onLine && isDownloaded) ? 'html5' : 'youtube';
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
       alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
       return; 
-    }
-
-    // OYNAMAYACAK OLAN MOTORU ZORLA DURDUR (Çift Ses Engelleyici)
-    if (nextEngine === 'html5' && state.playerRef && typeof state.playerRef.pauseVideo === 'function') {
-      state.playerRef.pauseVideo();
-    } else if (nextEngine === 'youtube' && state.html5PlayerRef) {
-      state.html5PlayerRef.pause();
     }
 
     set({ 
@@ -315,16 +308,29 @@ const usePlayerStore = create((set, get) => ({
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
     });
 
-    // MOBİL İÇİN KESİN ÇÖZÜM: HTML5 Motorunu Tıklama Anında Başlat!
-    // Bu sayede Android "Kullanıcı tıklamadı o yüzden oynatamam" hatası vermez.
-    if (nextEngine === 'html5' && state.html5PlayerRef && localData) {
-      if (state.html5PlayerRef.src !== localData.localAudioUrl) {
-        state.html5PlayerRef.src = localData.localAudioUrl;
-        state.html5PlayerRef.load();
+    // 🔴 KRİTİK ÇÖZÜM: Oynatma komutunu, React render'ı tamamlanıp DOM hazır olduktan 50ms SONRA çalıştır.
+    // Bu sayede çift tetiklenme ve AbortError önlenir, UI kilitlenmez.
+    setTimeout(() => {
+      const html5El = get().html5PlayerRef;
+      const ytEl = get().playerRef;
+
+      if (nextEngine === 'html5' && html5El && localData) {
+        if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); // Youtube'u sustur
+
+        if (html5El.src !== localData.localAudioUrl) {
+          html5El.src = localData.localAudioUrl;
+          html5El.load();
+        }
+        
+        html5El.play().catch(e => {
+          console.error("HTML5 Play Hatası:", e);
+          set({ isPlaying: false }); // Eğer bir hata çıkarsa UI'ı sahte "çalıyor" durumundan kurtar.
+        });
+      } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
+        if (html5El) html5El.pause(); // HTML5'i sustur
       }
-      state.html5PlayerRef.play().catch(e => console.error("Çevrimdışı oynatma engellendi:", e));
-    }
-    
+    }, 50);
+
     get().fetchLyrics(song);
 
     if (auth.currentUser && navigator.onLine) {

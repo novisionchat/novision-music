@@ -17,12 +17,11 @@ const YouTubeEngine = () => {
     playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1 },
   }), []);
 
-  // Oynatıcıyı Merkeze Kaydetme (Artık hep sabit olduğu için anında kaydolacak)
+  // HTML5 Motorunu (Audio) Mount edildiğinde Store'a kaydet (Bu sayede Store kendi yönetebilecek)
   useEffect(() => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
-  // Bildirim ve Kilit Ekranı Kontrolleri
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
@@ -46,7 +45,7 @@ const YouTubeEngine = () => {
     const { activeEngine: currentEngine } = usePlayerStore.getState();
     const player = event.target;
     
-    // Eğer Offline veya Local çalıyorsa, YouTube kafasına göre oynayamasın!
+    // Motor HTML5 ise, YouTube'un oynamasına ASLA izin verme
     if (currentEngine !== 'youtube') {
       if (event.data === 1 || event.data === 3) player.pauseVideo(); 
       return; 
@@ -92,7 +91,6 @@ const YouTubeEngine = () => {
       zIndex: (isVideoMode && activeEngine === 'youtube') ? 5 : -1,
       borderRadius: '8px', overflow: 'hidden'
     }}>
-      {/* Youtube Videosu (İhtiyaca Göre Ekrana Çıkar) */}
       {currentSong && (
         <YouTube 
           videoId={currentSong.id} 
@@ -102,8 +100,6 @@ const YouTubeEngine = () => {
           iframeClassName="youtube-video-fill" 
         />
       )}
-      
-      {/* YEREL SES MOTORU (ARTIK HEP SABİT!) Durdur/Başlat gibi butonların bozulmasını önler. */}
       <audio 
         ref={audioRef}
         onPlay={onAudioPlay}
