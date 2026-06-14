@@ -1,53 +1,59 @@
 import { create } from 'zustand';
 import { auth, db } from '../firebase';
 import { ref, set as firebaseSet } from 'firebase/database';
-import localforage from 'localforage'; // Tarayıcı veritabanı (IndexedDB)
+import localforage from 'localforage';
 
-// LocalForage Yapılandırması (Tarayıcı offline testleri için)
-localforage.config({
-  name: 'NovisionMusic',
-  storeName: 'offline_songs'
-});
+localforage.config({ name: 'NovisionMusic', storeName: 'offline_songs' });
 
-// Dosyaları Capacitor için Base64 formatına çevirme yardımcı fonksiyonu
 const blobToBase64 = (blob) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result.split(',')[1];
-      resolve(base64String);
-    };
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
 };
 
+const safeReadJSON = async (Filesystem, Directory, path) => {
+  try {
+    const res = await Filesystem.readFile({ path, directory: Directory.Data, encoding: 'utf8' });
+    return JSON.parse(res.data);
+  } catch (e) { return null; }
+};
+
+const safeWriteJSON = async (Filesystem, Directory, path, data) => {
+  try { await Filesystem.writeFile({ path, data: JSON.stringify(data), directory: Directory.Data, encoding: 'utf8' }); } 
+  catch (e) { console.error("Yazma hatası:", e); }
+};
+
 const usePlayerStore = create((set, get) => ({
-  // --- TEMEL DURUMLAR ---
   currentSong: null, queue: [], currentIndex: -1, isPlaying: false,
   volume: 100, currentTime: 0, duration: 0, 
   
-  // --- ÇİFT MOTOR & İNDİRME DURUMLARI ---
-  playerRef: null,       
-  html5PlayerRef: null,  
+  playerRef: null, html5PlayerRef: null,  
   activeEngine: 'youtube', 
-  downloadedSongs: {},   
+  downloadedSongs: {},
+  downloadedMetadata: {}, 
+  localPlaylists: [],     
   isOfflineMode: !navigator.onLine, 
   
-  // İNDİRME YÖNETİCİSİ
-  downloadQueue: [],      
-  downloadProgress: {},   
-  downloadXHRs: {}, 
-  downloadQueueList: [],  // Sırasını bekleyen şarkı objelerinin listesi
+  downloadQueue: [], downloadProgress: {}, downloadXHRs: {}, downloadQueueList: [],
 
-  // --- ARAYÜZ VE LİSTE DURUMLARI ---
   isPanelOpen: false, isPanelFullscreen: false,
   isShuffle: false, isRepeat: false,
   history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
   lyrics: [], isLyricsLoading: false, isVideoMode: false,
+  
+  activeBlobUrl: null, // RAM şişmesini engellemek için çalınan şarkının bellek adresini tutar
 
-  // --- SETTER'LAR VE UI KONTROLLERİ ---
-  setVideoMode: (val) => set({ isVideoMode: val }),
+  setVideoMode: (val) => {
+    if (val && !navigator.onLine) {
+      alert("İnternet bağlantınız yok. Video oynatılamaz.");
+      return;
+    }
+    set({ isVideoMode: val });
+  },
+
   openAddModal: (song) => set({ songToAdd: song, isAddModalOpen: true }),
   closeAddModal: () => set({ songToAdd: null, isAddModalOpen: false }),
   setPlayerRef: (ref) => set({ playerRef: ref }),
@@ -59,282 +65,219 @@ const usePlayerStore = create((set, get) => ({
   toggleShuffle: () => set((state) => ({ isShuffle: !state.isShuffle })),
   toggleRepeat: () => set((state) => ({ isRepeat: !state.isRepeat })),
 
-  // --- UYGULAMA AÇILDIĞINDA İNDİRİLMİŞ ŞARKILARI VE KAPAKLARI YÜKLE ---
   initOfflineStorage: async () => {
     try {
+      let metadata = {}; let lPlaylists = []; let loadedSongs = {};
+
       if (window.Capacitor) {
-        // MOBİL UYGULAMA (APK): Yerel diskten dosyaları tara
         const { Filesystem, Directory } = await import('@capacitor/filesystem');
-        const result = await Filesystem.readdir({
-          path: '',
-          directory: Directory.Data
-        });
-        
-        const loadedSongs = {};
+        metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
+        lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
+
+        const result = await Filesystem.readdir({ path: '', directory: Directory.Data });
         for (let file of result.files) {
-          const name = file.name;
-          if (name.endsWith('.mp3')) {
-            const id = name.replace('.mp3', '');
-            const audioUri = await Filesystem.getUri({ path: name, directory: Directory.Data });
+          if (file.name.endsWith('.mp3')) {
+            const id = file.name.replace('.mp3', '');
+            const audioUri = await Filesystem.getUri({ path: file.name, directory: Directory.Data });
             
             let localThumbUrl = null;
-            const thumbExists = result.files.some(f => f.name === `${id}_thumb.jpg`);
-            if (thumbExists) {
-              const tUri = await Filesystem.getUri({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-              localThumbUrl = window.Capacitor.convertFileSrc(tUri.uri);
+            if (result.files.some(f => f.name === `${id}_thumb.jpg`)) {
+              const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
+              localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
             }
 
             loadedSongs[id] = {
               localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
-              localThumbUrl: localThumbUrl
+              localThumbUrl: localThumbUrl,
+              metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
             };
           }
         }
-        set({ downloadedSongs: loadedSongs });
       } else {
-        // TARAYICI (TEST MODU): IndexedDB'den müzik ve kapak bloblarını yükle
+        metadata = (await localforage.getItem('downloaded_metadata')) || {};
+        lPlaylists = (await localforage.getItem('local_playlists')) || [];
         const keys = await localforage.keys();
-        const loadedSongs = {};
         for (let id of keys) {
-          if (id.endsWith('-thumb')) continue; // Kapak anahtarlarını atla, müzik anahtarlarını yakala
-          
+          if (id.endsWith('-thumb') || id === 'downloaded_metadata' || id === 'local_playlists') continue;
           const blob = await localforage.getItem(id);
           const thumbBlob = await localforage.getItem(`${id}-thumb`);
-          
           if (blob) {
+            const localThumbUrl = thumbBlob ? URL.createObjectURL(thumbBlob) : null;
             loadedSongs[id] = { 
               localAudioUrl: URL.createObjectURL(blob), 
-              localThumbUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : null 
+              localThumbUrl: localThumbUrl,
+              metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
             }; 
           }
         }
-        set({ downloadedSongs: loadedSongs });
       }
-    } catch (e) {
-      console.error("Offline DB yüklenirken hata:", e);
-    }
+      set({ downloadedSongs: loadedSongs, downloadedMetadata: metadata, localPlaylists: lPlaylists });
+    } catch (e) { console.error("Offline DB yüklenirken hata:", e); }
   },
 
-  // --- TOPLU İNDİRME SIRASINA EKLEME ---
+  saveLocalPlaylists: async (newPlaylists) => {
+    set({ localPlaylists: newPlaylists });
+    if (window.Capacitor) {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      await safeWriteJSON(Filesystem, Directory, 'local_playlists.json', newPlaylists);
+    } else { await localforage.setItem('local_playlists', newPlaylists); }
+  },
+  createLocalPlaylist: (name) => {
+    const newPlaylist = { id: `local_${Date.now()}`, name, songs: [] };
+    get().saveLocalPlaylists([...get().localPlaylists, newPlaylist]);
+  },
+  updateLocalPlaylistSongs: (id, songs) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, songs } : pl)); },
+  updateLocalPlaylistName: (id, name) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, name } : pl)); },
+  deleteLocalPlaylist: (id) => { get().saveLocalPlaylists(get().localPlaylists.filter(pl => pl.id !== id)); },
+
   addToDownloadQueueList: (songs) => {
     const state = get();
-    const newSongs = songs.filter(song => 
-      !state.downloadedSongs[song.id] && 
-      !state.downloadQueue.includes(song.id) &&
-      !state.downloadQueueList.some(q => q.id === song.id)
-    );
-
+    const newSongs = songs.filter(song => !state.downloadedSongs[song.id] && !state.downloadQueue.includes(song.id) && !state.downloadQueueList.some(q => q.id === song.id));
     if (newSongs.length === 0) return;
-
     set((s) => ({ downloadQueueList: [...s.downloadQueueList, ...newSongs] }));
-
-    if (get().downloadQueue.length === 0) {
-      get()._processDownloadQueue();
-    }
+    if (get().downloadQueue.length === 0) get()._processDownloadQueue();
   },
 
   _processDownloadQueue: async () => {
     const state = get();
     if (state.downloadQueueList.length === 0) return;
-
     const nextSong = state.downloadQueueList[0];
     set((s) => ({ downloadQueueList: s.downloadQueueList.slice(1) }));
-
-    try {
-      await get().downloadSong(nextSong);
-    } catch (err) {
-      console.error(`"${nextSong.title}" indirilemedi, sıradakine geçiliyor...`);
-    }
-
+    try { await get().downloadSong(nextSong); } catch (err) {}
     get()._processDownloadQueue();
   },
 
-  // --- ŞARKI VE KAPAK İNDİRME FONKSİYONU ---
   downloadSong: (song) => {
     return new Promise((resolve, reject) => {
       const state = get();
-      if (state.downloadedSongs[song.id] || state.downloadQueue.includes(song.id)) {
-        resolve(); return;
-      }
-
+      if (state.downloadedSongs[song.id] || state.downloadQueue.includes(song.id)) { resolve(); return; }
       const xhr = new XMLHttpRequest();
-      
-      set((s) => ({
-        downloadQueue: [...s.downloadQueue, song.id],
-        downloadProgress: { ...s.downloadProgress, [song.id]: 0 },
-        downloadXHRs: { ...s.downloadXHRs, [song.id]: xhr }
-      }));
+      set((s) => ({ downloadQueue: [...s.downloadQueue, song.id], downloadProgress: { ...s.downloadProgress, [song.id]: 0 }, downloadXHRs: { ...s.downloadXHRs, [song.id]: xhr } }));
 
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const downloadUrl = `${apiUrl}/api/download?id=${song.id}`; 
-        
         xhr.responseType = 'blob';
-        xhr.open('GET', downloadUrl, true);
-
+        xhr.open('GET', `${apiUrl}/api/download?id=${song.id}`, true);
         xhr.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 100);
-            set((s) => ({ downloadProgress: { ...s.downloadProgress, [song.id]: percentComplete } }));
-          }
+          if (event.lengthComputable) set((s) => ({ downloadProgress: { ...s.downloadProgress, [song.id]: Math.round((event.loaded / event.total) * 100) } }));
         };
-
         xhr.onload = async () => {
           if (xhr.status === 200 || xhr.status === 206) {
             const blob = xhr.response;
-            
-            // KAPAK FOTOĞRAFINI DA GÜVENLİCE BLOB OLARAK İNDİR
             let thumbBlob = null;
             try {
               const thumbRes = await fetch(song.thumbnail);
-              if (thumbRes.ok) {
-                thumbBlob = await thumbRes.blob();
-              }
-            } catch (e) {
-              console.warn("Kapak fotoğrafı indirilemedi, yedek görsel atanacak.");
-            }
+              if (thumbRes.ok) thumbBlob = await thumbRes.blob();
+            } catch (e) {}
 
-            let localAudioUrl = "";
-            let localThumbUrl = null;
+            let fetchedLyrics = [];
+            try {
+              let cleanTitle = song.title.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/official|video|audio|lyrics|lyric|hd|4k|mv|music/gi, '').trim();
+              let artist = song.channel.replace(/ - Topic|VEVO/gi, '').trim();
+              const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(artist + " " + cleanTitle)}`);
+              if(res.ok) {
+                const data = await res.json();
+                if (data && data[0]?.syncedLyrics) {
+                  data[0].syncedLyrics.split('\n').forEach(line => {
+                    const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
+                    if (match && match[4].trim()) fetchedLyrics.push({ time: parseInt(match[1])*60 + parseInt(match[2]) + (parseInt(match[3])/(match[3].length===2?100:1000)), text: match[4].trim() });
+                  });
+                }
+              }
+            } catch(e) {}
+
+            let localAudioUrl = ""; let localThumbUrl = null;
+            const newMetadata = { id: song.id, title: song.title, channel: song.channel, thumbnail: song.thumbnail, lyrics: fetchedLyrics };
+            const updatedMetadata = { ...get().downloadedMetadata, [song.id]: newMetadata };
 
             if (window.Capacitor) {
-              // MOBİL UYGULAMA (APK): Telefon hafızasına kaydet (Directory.Data)
               const { Filesystem, Directory } = await import('@capacitor/filesystem');
-              
               const base64Audio = await blobToBase64(blob);
-              await Filesystem.writeFile({
-                path: `${song.id}.mp3`,
-                data: base64Audio,
-                directory: Directory.Data
-              });
+              await Filesystem.writeFile({ path: `${song.id}.mp3`, data: base64Audio, directory: Directory.Data });
               const audioUri = await Filesystem.getUri({ path: `${song.id}.mp3`, directory: Directory.Data });
               localAudioUrl = window.Capacitor.convertFileSrc(audioUri.uri);
 
               if (thumbBlob) {
                 const base64Thumb = await blobToBase64(thumbBlob);
-                await Filesystem.writeFile({
-                  path: `${song.id}_thumb.jpg`,
-                  data: base64Thumb,
-                  directory: Directory.Data
-                });
-                const thumbUri = await Filesystem.getUri({ path: `${song.id}_thumb.jpg`, directory: Directory.Data });
-                localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri);
+                await Filesystem.writeFile({ path: `${song.id}_thumb.jpg`, data: base64Thumb, directory: Directory.Data });
+                localThumbUrl = `data:image/jpeg;base64,${base64Thumb}`; 
               }
+              await safeWriteJSON(Filesystem, Directory, 'downloaded_metadata.json', updatedMetadata);
             } else {
-              // TARAYICI (TEST MODU): IndexedDB'ye kaydet
               await localforage.setItem(song.id, blob);
               localAudioUrl = URL.createObjectURL(blob);
-              
-              if (thumbBlob) {
-                await localforage.setItem(`${song.id}-thumb`, thumbBlob);
-                localThumbUrl = URL.createObjectURL(thumbBlob);
-              }
+              if (thumbBlob) { await localforage.setItem(`${song.id}-thumb`, thumbBlob); localThumbUrl = URL.createObjectURL(thumbBlob); }
+              await localforage.setItem('downloaded_metadata', updatedMetadata);
             }
 
             set((s) => {
               const newXHRs = { ...s.downloadXHRs }; delete newXHRs[song.id];
               return {
-                downloadedSongs: { 
-                  ...s.downloadedSongs, 
-                  [song.id]: { localAudioUrl: localAudioUrl, localThumbUrl: localThumbUrl || song.thumbnail } 
-                },
-                downloadQueue: s.downloadQueue.filter(id => id !== song.id),
-                downloadXHRs: newXHRs
+                downloadedMetadata: updatedMetadata,
+                downloadedSongs: { ...s.downloadedSongs, [song.id]: { localAudioUrl, localThumbUrl: localThumbUrl || song.thumbnail, metadata: newMetadata } },
+                downloadQueue: s.downloadQueue.filter(id => id !== song.id), downloadXHRs: newXHRs
               };
             });
-            console.log(`"${song.title}" ve kapağı başarıyla yerel diske kaydedildi.`);
             resolve();
-          } else {
-             get().cancelDownload(song.id);
-             reject(new Error("HTTP Hatası: " + xhr.status));
-          }
+          } else { get().cancelDownload(song.id); reject(); }
         };
-
-        xhr.onerror = () => {
-          get().cancelDownload(song.id);
-          reject(new Error("Ağ hatası oluştu."));
-        };
-        
+        xhr.onerror = () => { get().cancelDownload(song.id); reject(); };
         xhr.send();
-
-      } catch (error) {
-        get().cancelDownload(song.id);
-        reject(error);
-      }
+      } catch (error) { get().cancelDownload(song.id); reject(error); }
     });
   },
 
-  // --- İNDİRMEYİ İPTAL ETME ---
   cancelDownload: (id) => {
-    const xhr = get().downloadXHRs[id];
-    if (xhr) xhr.abort(); 
-    
+    const xhr = get().downloadXHRs[id]; if (xhr) xhr.abort(); 
     set((s) => {
       const newXHRs = { ...s.downloadXHRs }; delete newXHRs[id];
       const newProgress = { ...s.downloadProgress }; delete newProgress[id];
-      return {
-        downloadQueue: s.downloadQueue.filter(songId => songId !== id),
-        downloadProgress: newProgress,
-        downloadXHRs: newXHRs
-      };
+      return { downloadQueue: s.downloadQueue.filter(songId => songId !== id), downloadProgress: newProgress, downloadXHRs: newXHRs };
     });
   },
 
-  // --- İNDİRİLMİŞ ŞARKIYI SİLME ---
   deleteDownloadedSong: async (id) => {
+    const updatedMetadata = { ...get().downloadedMetadata }; delete updatedMetadata[id];
     if (window.Capacitor) {
-      // APK ise telefondan dosyaları sil
       try {
         const { Filesystem, Directory } = await import('@capacitor/filesystem');
         await Filesystem.deleteFile({ path: `${id}.mp3`, directory: Directory.Data });
         await Filesystem.deleteFile({ path: `${id}_thumb.jpg`, directory: Directory.Data }).catch(() => {});
-      } catch (e) {
-        console.error("Yerel dosya silinemedi:", e);
-      }
+        await safeWriteJSON(Filesystem, Directory, 'downloaded_metadata.json', updatedMetadata);
+      } catch (e) {}
     } else {
-      // Tarayıcı ise IndexedDB'den sil
-      await localforage.removeItem(id);
+      await localforage.removeItem(id); await localforage.setItem('downloaded_metadata', updatedMetadata);
     }
     
     set((s) => {
       const newDownloaded = { ...s.downloadedSongs };
       if (newDownloaded[id]?.localAudioUrl) URL.revokeObjectURL(newDownloaded[id].localAudioUrl);
       delete newDownloaded[id];
-      
-      let engine = s.activeEngine;
-      if (s.currentSong?.id === id && s.activeEngine === 'html5') {
-        engine = 'youtube'; 
-        if (s.html5PlayerRef) s.html5PlayerRef.pause();
-        if (s.playerRef) s.playerRef.playVideo();
-      }
-
-      return { downloadedSongs: newDownloaded, activeEngine: engine };
+      return { downloadedSongs: newDownloaded, downloadedMetadata: updatedMetadata };
     });
   },
 
-  // --- SÖZLER VE DİĞER MOTOR AYARLARI (Aynı Kaldı) ---
   fetchLyrics: async (song) => {
+    const state = get();
+    const localData = state.downloadedSongs[song.id];
+    if (localData && localData.metadata?.lyrics?.length > 0) {
+      set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
+      return;
+    }
+    if (!navigator.onLine) { set({ lyrics: [], isLyricsLoading: false }); return; }
     set({ lyrics: [], isLyricsLoading: true });
     try {
       let cleanTitle = song.title.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/official|video|audio|lyrics|lyric|hd|4k|mv|music/gi, '').trim();
       let artist = song.channel.replace(/ - Topic|VEVO/gi, '').trim();
-      let searchQuery = artist.length > 2 && !cleanTitle.toLowerCase().includes(artist.toLowerCase()) ? `${artist} ${cleanTitle}` : cleanTitle;
-      const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(searchQuery)}`);
+      const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(artist + " " + cleanTitle)}`);
       const data = await res.json();
-      if (data && data.length > 0) {
-          const bestMatch = data[0];
-          if (bestMatch.syncedLyrics) {
-              const parsed = [];
-              bestMatch.syncedLyrics.split('\n').forEach(line => {
-                  const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
-                  if(match) {
-                      const time = parseInt(match[1], 10) * 60 + parseInt(match[2], 10) + (parseInt(match[3], 10) / (match[3].length === 2 ? 100 : 1000));
-                      if(match[4].trim()) parsed.push({time, text: match[4].trim()});
-                  }
-              });
-              set({ lyrics: parsed, isLyricsLoading: false });
-          } else if (bestMatch.plainLyrics) { set({ lyrics: [{ time: 0, text: bestMatch.plainLyrics }], isLyricsLoading: false }); } 
-          else { set({ lyrics: [], isLyricsLoading: false }); }
+      if (data && data[0]?.syncedLyrics) {
+        const parsed = [];
+        data[0].syncedLyrics.split('\n').forEach(line => {
+          const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
+          if(match && match[4].trim()) parsed.push({time: parseInt(match[1])*60 + parseInt(match[2]) + (parseInt(match[3])/(match[3].length===2?100:1000)), text: match[4].trim()});
+        });
+        set({ lyrics: parsed, isLyricsLoading: false });
       } else { set({ lyrics: [], isLyricsLoading: false }); }
     } catch(e) { set({ lyrics: [], isLyricsLoading: false }); }
   },
@@ -347,17 +290,18 @@ const usePlayerStore = create((set, get) => ({
 
     if (!fromHistory) {
       if (newCursor < newHistory.length - 1) newHistory = newHistory.slice(0, newCursor + 1);
-      newHistory.push(song);
-      newCursor++;
+      newHistory.push(song); newCursor++;
     }
 
-    const isDownloaded = !!state.downloadedSongs[song.id];
-    const nextEngine = isDownloaded ? 'html5' : 'youtube';
+    const localData = state.downloadedSongs[song.id];
+    const isDownloaded = !!localData;
+    
+    // Offline ise kesin HTML5, Online ise her zaman Youtube
+    const nextEngine = (!navigator.onLine && isDownloaded) ? 'html5' : 'youtube';
 
-    if (nextEngine === 'html5' && state.playerRef) {
-      state.playerRef.pauseVideo();
-    } else if (nextEngine === 'youtube' && state.html5PlayerRef) {
-      state.html5PlayerRef.pause();
+    if (nextEngine === 'youtube' && !navigator.onLine) {
+      alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
+      return; 
     }
 
     set({ 
@@ -365,13 +309,56 @@ const usePlayerStore = create((set, get) => ({
       currentIndex: index, isPlaying: true, currentTime: 0, 
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
     });
-    
+
+    // 🚀 ANDROID MEDIAPLAYER ÇÖZÜMÜ: 
+    setTimeout(async () => {
+      const html5El = get().html5PlayerRef;
+      const ytEl = get().playerRef;
+
+      if (nextEngine === 'html5' && html5El && localData) {
+        if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
+
+        let finalSrc = localData.localAudioUrl;
+
+        // EĞER CAPACITOR'DAYSAN (APK İSEN) ŞARKIYI AĞDAN DEĞİL SANAL BELLEKTEN ÇAL
+        if (window.Capacitor) {
+          try {
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');
+            const file = await Filesystem.readFile({ path: `${song.id}.mp3`, directory: Directory.Data });
+            
+            // RAM Yönetimi: Eski bellek sızıntısını temizle
+            if (get().activeBlobUrl) {
+              URL.revokeObjectURL(get().activeBlobUrl);
+            }
+
+            // Dosyayı Blob'a çevirip Android oynatıcısına saf dosya olarak veriyoruz (İnternet kilitlerine takılmaz!)
+            const res = await fetch(`data:audio/mp3;base64,${file.data}`);
+            const blob = await res.blob();
+            finalSrc = URL.createObjectURL(blob);
+            set({ activeBlobUrl: finalSrc });
+
+          } catch(e) { console.error("Blob dönüştürme hatası:", e); }
+        }
+
+        if (html5El.src !== finalSrc) {
+          html5El.src = finalSrc;
+          html5El.load();
+        }
+        
+        html5El.play().catch(e => {
+          console.error("HTML5 Play Hatası:", e);
+          set({ isPlaying: false });
+        });
+
+      } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
+        if (html5El) html5El.pause();
+      }
+    }, 50);
+
     get().fetchLyrics(song);
 
-    if (auth.currentUser) {
-      const uniqueHistory = Array.from(new Set(newHistory.map(a => a?.id)))
-        .map(id => newHistory.find(a => a?.id === id))
-        .filter(Boolean).slice(-25); 
+    if (auth.currentUser && navigator.onLine) {
+      const uniqueHistory = Array.from(new Set(newHistory.map(a => a?.id))).map(id => newHistory.find(a => a?.id === id)).filter(Boolean).slice(-25); 
       firebaseSet(ref(db, `users/${auth.currentUser.uid}/recentSongs`), uniqueHistory);
     }
   },
@@ -398,11 +385,8 @@ const usePlayerStore = create((set, get) => ({
   
   seekTo: (seconds) => { 
     const { playerRef, html5PlayerRef, activeEngine } = get(); 
-    if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { 
-      playerRef.seekTo(seconds, true); 
-    } else if (activeEngine === 'html5' && html5PlayerRef) {
-      html5PlayerRef.currentTime = seconds;
-    }
+    if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { playerRef.seekTo(seconds, true); } 
+    else if (activeEngine === 'html5' && html5PlayerRef) { html5PlayerRef.currentTime = seconds; }
     set({ currentTime: seconds }); 
   },
 
@@ -428,8 +412,7 @@ const usePlayerStore = create((set, get) => ({
     if (queue.length === 0) return;
     
     if (historyCursor < history.length - 1) {
-      const nextCursor = historyCursor + 1; 
-      const nextSong = history[nextCursor];
+      const nextCursor = historyCursor + 1; const nextSong = history[nextCursor];
       if(!nextSong) return;
       let idxInQueue = queue.findIndex(s => s.id === nextSong.id);
       if (idxInQueue === -1) { queue.push(nextSong); idxInQueue = queue.length - 1; }
@@ -445,6 +428,14 @@ const usePlayerStore = create((set, get) => ({
     }
     
     if (currentIndex === queue.length - 1 && !isShuffle) {
+      if (!navigator.onLine) {
+        _seekCurrentEngineToZero();
+        const { activeEngine, playerRef, html5PlayerRef } = get();
+        if (activeEngine === 'youtube' && playerRef) playerRef.pauseVideo();
+        if (activeEngine === 'html5' && html5PlayerRef) html5PlayerRef.pause();
+        return;
+      }
+
       const currentSong = queue[currentIndex];
       try {
         let cleanArtist = currentSong.channel.replace(' - Topic', '').replace(/VEVO/i, '').trim();
@@ -476,10 +467,7 @@ const usePlayerStore = create((set, get) => ({
     const history = Array.isArray(rawHistory) ? rawHistory : [];
     const queue = Array.isArray(rawQueue) ? rawQueue : [];
 
-    if (_getCurrentEngineTime() > 3) { 
-      _seekCurrentEngineToZero(); 
-      return; 
-    }
+    if (_getCurrentEngineTime() > 3) { _seekCurrentEngineToZero(); return; }
     
     if (historyCursor > 0) {
       const prevCursor = historyCursor - 1; const prevSong = history[prevCursor];
@@ -488,9 +476,7 @@ const usePlayerStore = create((set, get) => ({
       if (idxInQueue === -1) { queue.unshift(prevSong); idxInQueue = 0; }
       playSong(prevSong, queue, idxInQueue, true); 
       set({ historyCursor: prevCursor });
-    } else {
-      _seekCurrentEngineToZero();
-    }
+    } else { _seekCurrentEngineToZero(); }
   }
 }));
 

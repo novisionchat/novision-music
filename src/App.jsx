@@ -17,6 +17,25 @@ function App() {
   useEffect(() => { 
     initAuth(); 
     initOfflineStorage(); // Sayfa açılırken indirilen müzikleri yükle
+
+    // ARKA PLAN ÇALIŞMA MODU (Cihaz uyku modundayken müziğin devam etmesini sağlar)
+    if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
+      const bgMode = window.cordova.plugins.backgroundMode;
+      bgMode.setDefaults({
+          title: 'Novision Music',
+          text: 'Arka planda çalışıyor',
+          icon: 'icon', // Bildirimde uygulamanın ikonu görünür
+          color: '000000',
+          resume: true,
+          hidden: false,
+      });
+      bgMode.enable();
+      
+      // Uygulama arka plana atıldığında WebView dondurma optimizasyonlarını kapatır
+      bgMode.on('activate', () => {
+          bgMode.disableWebViewOptimizations();
+      });
+    }
   }, [initAuth, initOfflineStorage]);
 
   if (loading) return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>Yükleniyor...</div>;

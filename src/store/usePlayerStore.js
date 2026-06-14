@@ -318,27 +318,9 @@ const usePlayerStore = create((set, get) => ({
       if (nextEngine === 'html5' && html5El && localData) {
         if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
+        // Capacitor'ın kendi ürettiği URL çevrimdışı doğrudan akış (stream) yapar.
+        // Blob'a çevirmeye çalışmak RAM'i şişirip uygulamayı dondurur, bu yüzden direkt bunu kullanıyoruz!
         let finalSrc = localData.localAudioUrl;
-
-        // EĞER CAPACITOR'DAYSAN (APK İSEN) ŞARKIYI AĞDAN DEĞİL SANAL BELLEKTEN ÇAL
-        if (window.Capacitor) {
-          try {
-            const { Filesystem, Directory } = await import('@capacitor/filesystem');
-            const file = await Filesystem.readFile({ path: `${song.id}.mp3`, directory: Directory.Data });
-            
-            // RAM Yönetimi: Eski bellek sızıntısını temizle
-            if (get().activeBlobUrl) {
-              URL.revokeObjectURL(get().activeBlobUrl);
-            }
-
-            // Dosyayı Blob'a çevirip Android oynatıcısına saf dosya olarak veriyoruz (İnternet kilitlerine takılmaz!)
-            const res = await fetch(`data:audio/mp3;base64,${file.data}`);
-            const blob = await res.blob();
-            finalSrc = URL.createObjectURL(blob);
-            set({ activeBlobUrl: finalSrc });
-
-          } catch(e) { console.error("Blob dönüştürme hatası:", e); }
-        }
 
         if (html5El.src !== finalSrc) {
           html5El.src = finalSrc;

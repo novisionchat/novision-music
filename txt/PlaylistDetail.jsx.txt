@@ -18,7 +18,8 @@ const PlaylistDetail = () => {
   const { user } = useAuthStore();
   const { 
     playSong, isShuffle, toggleShuffle, downloadedSongs, downloadQueue, 
-    addToDownloadQueueList, downloadQueueList 
+    addToDownloadQueueList, downloadQueueList, localPlaylists, 
+    updateLocalPlaylistSongs, updateLocalPlaylistName 
   } = usePlayerStore();
   
   const [playlist, setPlaylist] = useState(null);
@@ -29,31 +30,46 @@ const PlaylistDetail = () => {
   const [sortOrder, setSortOrder] = useState('oldest');
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // TOPLU İNDİRME STATE'LERİ (Yeni Eklendi)
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
 
   const ownerId = searchParams.get('owner') || (user ? user.uid : null);
-  const isMyPlaylist = user && ownerId === user.uid;
+  
+  const isLocal = id.startsWith('local_');
+  const isDownloadedFolder = id === 'downloaded';
+  const isMyPlaylist = isLocal || (user && ownerId === user.uid);
+  const canEdit = !isDownloadedFolder && isMyPlaylist;
 
   useEffect(() => {
-    if (!user || !ownerId) return;
-    const fetchPlaylist = async () => {
-      const snap = await get(ref(db, `users/${ownerId}/playlists/${id}`));
-      if (snap.exists()) {
-        const data = snap.val();
-        setPlaylist(data);
-        const loadedSongs = data.songs || [];
-        setSongs(loadedSongs.map((s, i) => ({ ...s, uniqueId: s.uniqueId || `${s.id}-${Date.now()}-${i}` })));
-        setEditNameValue(data.name);
+    if (isDownloadedFolder) {
+      const dSongs = Object.values(downloadedSongs).map(d => ({ ...d.metadata, uniqueId: `${d.metadata.id}-dl` }));
+      setPlaylist({ name: 'İndirilen Şarkılar', songs: dSongs });
+      setSongs(dSongs);
+      setEditNameValue('İndirilen Şarkılar');
+    } else if (isLocal) {
+      const pl = localPlaylists.find(p => p.id === id);
+      if (pl) {
+        setPlaylist(pl);
+        setSongs(pl.songs || []);
+        setEditNameValue(pl.name);
       }
-    };
-    fetchPlaylist();
-  }, [id, user, ownerId]);
+    } else if (ownerId && navigator.onLine) {
+      const fetchPlaylist = async () => {
+        const snap = await get(ref(db, `users/${ownerId}/playlists/${id}`));
+        if (snap.exists()) {
+          const data = snap.val();
+          setPlaylist(data);
+          const loadedSongs = data.songs || [];
+          setSongs(loadedSongs.map((s, i) => ({ ...s, uniqueId: s.uniqueId || `${s.id}-${Date.now()}-${i}` })));
+          setEditNameValue(data.name);
+        }
+      };
+      fetchPlaylist();
+    }
+  }, [id, user, ownerId, downloadedSongs, localPlaylists]);
 
   const onDragEnd = (result) => {
-    if (!result.destination || !isMyPlaylist) return;
+    if (!result.destination || !canEdit) return;
     const items = Array.from(songs);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
@@ -61,17 +77,25 @@ const PlaylistDetail = () => {
   };
 
   const handleSaveEdit = async () => {
-    if (!isMyPlaylist) return;
-    await set(ref(db, `users/${user.uid}/playlists/${id}/songs`), songs);
-    if (editNameValue.trim() !== "" && editNameValue !== playlist.name) {
-      setPlaylist(prev => ({ ...prev, name: editNameValue }));
-      await set(ref(db, `users/${user.uid}/playlists/${id}/name`), editNameValue);
+    if (!canEdit) return;
+    if (isLocal) {
+      updateLocalPlaylistSongs(id, songs);
+      if (editNameValue.trim() !== "" && editNameValue !== playlist.name) {
+        updateLocalPlaylistName(id, editNameValue);
+        setPlaylist(prev => ({ ...prev, name: editNameValue }));
+      }
+    } else {
+      await set(ref(db, `users/${user.uid}/playlists/${id}/songs`), songs);
+      if (editNameValue.trim() !== "" && editNameValue !== playlist.name) {
+        setPlaylist(prev => ({ ...prev, name: editNameValue }));
+        await set(ref(db, `users/${user.uid}/playlists/${id}/name`), editNameValue);
+      }
     }
     setIsEditMode(false); setIsNameEditing(false);
   };
 
   const handleRemoveSong = (index) => {
-    if (!isMyPlaylist) return;
+    if (!canEdit) return;
     const newSongs = [...songs]; newSongs.splice(index, 1); setSongs(newSongs);
   };
 
@@ -80,38 +104,20 @@ const PlaylistDetail = () => {
     const startIndex = isShuffle ? Math.floor(Math.random() * songs.length) : 0;
     playSong(songs[startIndex], songs, startIndex);
     
-    if (user && isMyPlaylist) {
-      await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: songs[0]?.thumbnail || '/icon.png' });
+    if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder) {
+      await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: downloadedSongs[songs[0]?.id]?.localThumbUrl || songs[0]?.thumbnail || '/icon.png' });
     }
   };
 
-  // --- SEÇEREK TOPLU İNDİRME FONKSİYONLARI (Yeni Eklendi) ---
-  const toggleSelectSong = (songId) => {
-    setSelectedSongs(prev => 
-      prev.includes(songId) ? prev.filter(id => id !== songId) : [...prev, songId]
-    );
-  };
-
-  const handleSelectAll = () => {
-    // Zaten indirilmiş veya inmekte olanları hariç tutup hepsini seçebiliriz
-    const nonDownloadedIds = songs
-      .filter(s => !downloadedSongs[s.id])
-      .map(s => s.id);
-    setSelectedSongs(nonDownloadedIds);
-  };
-
-  const handleUnselectAll = () => {
-    setSelectedSongs([]);
-  };
+  const toggleSelectSong = (songId) => setSelectedSongs(prev => prev.includes(songId) ? prev.filter(id => id !== songId) : [...prev, songId]);
+  const handleSelectAll = () => setSelectedSongs(songs.filter(s => !downloadedSongs[s.id]).map(s => s.id));
+  const handleUnselectAll = () => setSelectedSongs([]);
 
   const handleStartBulkDownload = () => {
     const songsToDownload = songs.filter(s => selectedSongs.includes(s.id));
-    
     if (songsToDownload.length === 0) return;
-    
-    addToDownloadQueueList(songsToDownload); // Zustand sırasına ekle
-    setIsDownloadMode(false); // Seçim modundan çık
-    setSelectedSongs([]);     // Seçimleri sıfırla
+    addToDownloadQueueList(songsToDownload);
+    setIsDownloadMode(false); setSelectedSongs([]);
   };
 
   const safeSongs = Array.isArray(songs) ? songs : [];
@@ -125,7 +131,7 @@ const PlaylistDetail = () => {
       <div className="back-btn-container" onClick={() => navigate('/library')}><MdArrowBack size={28} /></div>
 
       <div className="playlist-header-large">
-        {isNameEditing && isMyPlaylist ? (
+        {isNameEditing && canEdit ? (
           <div className="edit-name-container">
             <input type="text" className="edit-name-input" value={editNameValue} onChange={(e) => setEditNameValue(e.target.value)} autoFocus />
             <button className="icon-btn" onClick={() => setIsNameEditing(false)}><MdCheck size={28} color="var(--accent)" /></button>
@@ -133,40 +139,27 @@ const PlaylistDetail = () => {
         ) : (
           <div className="title-container">
             <h1 className="playlist-huge-title">{editNameValue}</h1>
-            {isEditMode && isMyPlaylist && (
+            {isEditMode && canEdit && (
               <button className="icon-btn" onClick={() => setIsNameEditing(true)}><MdEdit size={24} color="var(--text-muted)" /></button>
             )}
           </div>
         )}
         <p className="playlist-info-text">
-          {safeSongs.length} Şarkı {!isMyPlaylist && " • (Başkasının Listesi)"}
+          {safeSongs.length} Şarkı 
+          {isDownloadedFolder && " • (Cihazına İndirilenler)"}
+          {isLocal && " • (Yerel Liste)"}
+          {(!isMyPlaylist && !isDownloadedFolder) && " • (Başkasının Listesi)"}
         </p>
       </div>
 
-      {/* TOPLU SEÇİM BARBARI (Seçim modu açıkken görünür) */}
       {isDownloadMode && (
-        <div style={{ 
-          display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', 
-          marginBottom: '20px', backgroundColor: 'var(--bg-hover)', 
-          padding: '12px 15px', borderRadius: '8px', border: '1px solid var(--border)' 
-        }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '20px', backgroundColor: 'var(--bg-hover)', padding: '12px 15px', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <button className="secondary-btn" onClick={handleSelectAll}>Hepsini Seç</button>
           <button className="secondary-btn" onClick={handleUnselectAll}>Seçimi Temizle</button>
-          <button 
-            className="primary-btn" 
-            style={{ width: 'auto', padding: '8px 20px', background: 'var(--accent)', color: 'white' }}
-            onClick={handleStartBulkDownload}
-            disabled={selectedSongs.length === 0}
-          >
+          <button className="primary-btn" style={{ width: 'auto', padding: '8px 20px', background: 'var(--accent)', color: 'white' }} onClick={handleStartBulkDownload} disabled={selectedSongs.length === 0}>
             Seçilenleri İndir ({selectedSongs.length})
           </button>
-          <button 
-            className="secondary-btn" 
-            style={{ marginLeft: 'auto' }} 
-            onClick={() => { setIsDownloadMode(false); setSelectedSongs([]); }}
-          >
-            İptal
-          </button>
+          <button className="secondary-btn" style={{ marginLeft: 'auto' }} onClick={() => { setIsDownloadMode(false); setSelectedSongs([]); }}>İptal</button>
         </div>
       )}
 
@@ -176,14 +169,8 @@ const PlaylistDetail = () => {
             <button className="play-pause-btn big-play" onClick={handlePlayAll}><MdPlayArrow size={32} color="white" /></button>
             <button className="icon-btn shuffle-btn" onClick={toggleShuffle} style={{ color: isShuffle ? 'var(--accent)' : 'var(--text-muted)' }}><MdShuffle size={32} /></button>
             
-            {/* Toplu İndirme Modunu Açan Buton (İçerisinde şarkı varsa görünür) */}
-            {safeSongs.length > 0 && (
-              <button 
-                className="icon-btn" 
-                title="Toplu İndir" 
-                onClick={() => setIsDownloadMode(true)}
-                style={{ marginLeft: '15px' }}
-              >
+            {!isDownloadedFolder && safeSongs.length > 0 && navigator.onLine && (
+              <button className="icon-btn" title="Toplu İndir" onClick={() => setIsDownloadMode(true)} style={{ marginLeft: '15px' }}>
                 <MdFileDownload size={32} color="white" />
               </button>
             )}
@@ -204,7 +191,7 @@ const PlaylistDetail = () => {
           </>
         )}
         
-        {isMyPlaylist && !isDownloadMode && (
+        {canEdit && !isDownloadMode && (
           <button className="secondary-btn" onClick={isEditMode ? handleSaveEdit : () => { setSortOrder('oldest'); setSearchQuery(''); setIsEditMode(true); }} style={{ marginLeft: isEditMode ? 'auto' : '15px', background: isEditMode ? 'var(--accent)' : 'transparent', color: isEditMode ? 'white' : 'var(--text-muted)' }}>
             {isEditMode ? "Bitti" : "Düzenle"}
           </button>
@@ -218,11 +205,8 @@ const PlaylistDetail = () => {
         </div>
       )}
 
-      {/* BEKLEME LİSTESİ DURUMU (Kuyrukta bekleyen şarkı adedi varsa göster) */}
       {downloadQueueList.length > 0 && (
-        <p style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 'bold', marginBottom: '15px' }}>
-          Sırada bekleyen {downloadQueueList.length} indirme var...
-        </p>
+        <p style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 'bold', marginBottom: '15px' }}>Sırada bekleyen {downloadQueueList.length} indirme var...</p>
       )}
 
       <div className="playlist-songs">
@@ -235,54 +219,38 @@ const PlaylistDetail = () => {
                 <div {...provided.droppableProps} ref={provided.innerRef}>
                   {displaySongs.map((song, displayIndex) => {
                     const trueIndex = safeSongs.findIndex(s => s.uniqueId === song.uniqueId);
-                    
                     const isSongDownloaded = !!downloadedSongs[song.id];
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
+
+                    // Kapak Fotoğrafını Doğru Kaynaktan Çek
+                    const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
 
                     return (
                       <Draggable key={song.uniqueId} draggableId={song.uniqueId} index={trueIndex !== -1 ? trueIndex : displayIndex} isDragDisabled={!isEditMode || isDownloadMode}>
                         {(provided, snapshot) => (
                           <div className={`song-row dnd-row ${snapshot.isDragging ? 'dragging' : ''} ${isEditMode ? 'edit-mode' : ''}`} ref={provided.innerRef} {...provided.draggableProps}>
-                            {isEditMode && <div className="drag-handle" {...provided.dragHandleProps}><MdDragIndicator size={24} color="gray" /></div>}
+                            {isEditMode && canEdit && <div className="drag-handle" {...provided.dragHandleProps}><MdDragIndicator size={24} color="gray" /></div>}
                             
-                            {/* TOPLU SEÇİM KUTUCUKLARI (Seçim modu açıkken gösterilir) */}
                             {isDownloadMode && (
-                              <input 
-                                type="checkbox"
-                                checked={selectedSongs.includes(song.id)}
-                                onChange={() => toggleSelectSong(song.id)}
-                                disabled={isSongDownloaded} // Zaten inmişse tekrar seçtirtme
-                                style={{ 
-                                  width: '20px', height: '20px', marginRight: '15px', 
-                                  cursor: isSongDownloaded ? 'not-allowed' : 'pointer',
-                                  accentColor: 'var(--accent)'
-                                }}
-                              />
+                              <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />
                             )}
 
                             <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
-                              <img src={song.thumbnail} alt={song.title} className="song-thumb" />
+                              <img src={rowThumb} alt={song.title} className="song-thumb" />
                               {!isEditMode && !isDownloadMode && <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>}
                             </div>
 
                             <div className="song-info" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
                               <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span>{song.title}</span>
-                                {/* Mini Çevrimdışı İkon Durumları */}
-                                {isSongDownloaded && (
-                                  <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>
-                                )}
-                                {isSongDownloading && (
-                                  <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px' }}>İniyor...</span>
-                                )}
-                                {isSongInWaitQueue && (
-                                  <span style={{ fontSize: '10px', color: 'gray' }}>Sırada</span>
-                                )}
+                                {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>}
+                                {isSongDownloading && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px' }}>İniyor...</span>}
+                                {isSongInWaitQueue && <span style={{ fontSize: '10px', color: 'gray' }}>Sırada</span>}
                               </div>
                               <div className="song-channel">{song.channel}</div>
                             </div>
-                            {isEditMode && <button className="icon-btn" style={{ color: '#ff4d4d' }} onClick={() => handleRemoveSong(trueIndex)}><MdDelete size={24} /></button>}
+                            {isEditMode && canEdit && <button className="icon-btn" style={{ color: '#ff4d4d' }} onClick={() => handleRemoveSong(trueIndex)}><MdDelete size={24} /></button>}
                           </div>
                         )}
                       </Draggable>

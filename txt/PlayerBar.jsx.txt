@@ -10,16 +10,15 @@ const formatTime = (time) => {
 };
 
 const PlayerBar = () => {
-  // activeEngine ve downloadedSongs state'leri eklendi
-  const { currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, togglePanel, playNext, playPrev, activeEngine, downloadedSongs } = usePlayerStore();
+  const { currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, togglePanel, playNext, playPrev, downloadedSongs } = usePlayerStore();
 
   if (!currentSong) return null;
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   
-  // Eğer şarkı yerel cihazda varsa ve internetimiz yoksa yerel fotoğrafı kullan
+  // Yerel veri (Base64) varsa ÖNCELİKLE YEREL kullan. İnternet olmasa da yüklenir!
   const localData = downloadedSongs[currentSong.id];
-  const displayThumb = (activeEngine === 'html5' && localData?.localThumbUrl) ? localData.localThumbUrl : currentSong.thumbnail;
+  const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
 
   return (
     <footer className="player-bar-container">
