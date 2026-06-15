@@ -103,8 +103,6 @@ const usePlayerStore = create((set, get) => ({
                 const audioUri = await Filesystem.getUri({ path: fileName, directory: Directory.Data });
                 
                 let localThumbUrl = null;
-                let localThumbNativeUrl = null; // Yerel resmin gerçek telefon içi disk yolu (file:// formatında)
-                
                 const hasThumb = result.files.some(f => {
                   const fName = typeof f === 'string' ? f : f.name;
                   return fName === `${id}_thumb.jpg`;
@@ -112,12 +110,9 @@ const usePlayerStore = create((set, get) => ({
 
                 if (hasThumb) {
                   try {
-                    const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-                    localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
-                    
-                    // Android'in kilit ekranında görseli okuyabilmesi için gerçek file:// yolu alınır
+                    // ANDROID BİLDİRİMİNİN OKUYABİLMESİ İÇİN GÖRSELİ YEREL CAPACITOR SUNUCU URL'SİNE ÇEVİRİYORUZ
                     const thumbUri = await Filesystem.getUri({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-                    localThumbNativeUrl = thumbUri.uri;
+                    localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri);
                   } catch (err) { console.error("Küçük resim okuma hatası:", err); }
                 }
 
@@ -125,7 +120,6 @@ const usePlayerStore = create((set, get) => ({
                   localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
                   localNativeUrl: audioUri.uri,
                   localThumbUrl: localThumbUrl || '/icon.png',
-                  localThumbNativeUrl: localThumbNativeUrl || '/icon.png', // Android için gerçek yol kaydedilir
                   metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
                 };
               }
@@ -154,7 +148,6 @@ const usePlayerStore = create((set, get) => ({
                 localAudioUrl: URL.createObjectURL(blob), 
                 localNativeUrl: URL.createObjectURL(blob),
                 localThumbUrl: localThumbUrl || '/icon.png',
-                localThumbNativeUrl: localThumbUrl || '/icon.png',
                 metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
               }; 
             }
@@ -253,7 +246,9 @@ const usePlayerStore = create((set, get) => ({
               if (thumbBlob) {
                 const base64Thumb = await blobToBase64(thumbBlob);
                 await Filesystem.writeFile({ path: `${song.id}_thumb.jpg`, data: base64Thumb, directory: Directory.Data });
-                localThumbUrl = `data:image/jpeg;base64,${base64Thumb}`; 
+                // ANDROID UYUMU İÇİN GERÇEK YEREL URL'YE ÇEVİRİLİR
+                const thumbUri = await Filesystem.getUri({ path: `${song.id}_thumb.jpg`, directory: Directory.Data });
+                localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri);
               }
               await safeWriteJSON(Filesystem, Directory, 'downloaded_metadata.json', updatedMetadata);
             } else {
@@ -496,93 +491,98 @@ const usePlayerStore = create((set, get) => ({
       nativeProgressInterval: null
     });
 
-    setTimeout(async () => {
-      const html5El = get().html5PlayerRef;
-      const ytEl = get().playerRef;
+    // -----------------------------------------------------------------
+    // DÜZELTME: ARKA PLANDA ÇALIŞIRKEN DETECT EDİLEN KISI KUSURSUZ ÇALIŞSIN DİYE
+    // YEREL MOBİL SES MOTORUNU SETTIMEOUT OLMADAN, SENKRON BAŞLATIYORUZ!
+    // -----------------------------------------------------------------
+    if (window.Capacitor && AudioPlayer && nextEngine === 'html5') {
+        const runNativeAudio = async () => {
+          try {
+            await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
+            
+            const nativeSource = isDownloaded && localData 
+              ? (localData.localNativeUrl || localData.localAudioUrl) 
+              : streamUrlToAssign;
 
-      if (ytEl && typeof ytEl.mute === 'function') {
-         ytEl.mute();
-         ytEl.playVideo();
-      }
+            // ÇEVRİMDIŞIYKEN KAPAK RESMİNİ ANDROID BİLDİRİMİNİN DOĞRUDAN OKUYABİLECEĞİ CAPACITOR LOCAL SERVER ADRESİYLE VERİYORUZ
+            const nativeArtwork = isDownloaded && localData 
+              ? (localData.localThumbUrl || '/icon.png') 
+              : (song.thumbnail || '/icon.png');
 
-      let nativeSource = null;
-      let nativeArtwork = song.thumbnail || '/icon.png';
+            await AudioPlayer.create({
+              audioId: 'novision-track',
+              audioSource: nativeSource,
+              friendlyTitle: song.title,
+              artistName: song.channel,
+              artworkSource: nativeArtwork,
+              useForNotification: true,
+              isBackgroundMusic: true,
+              loop: false,
+            });
 
-      if (isDownloaded && localData) {
-         nativeSource = localData.localNativeUrl || localData.localAudioUrl;
-         // GÜNCELLEME: Çevrimdışıyken Base64 yerine Android kilit ekranının okuyabileceği file:// yolunu veriyoruz
-         nativeArtwork = localData.localThumbNativeUrl || '/icon.png';
-      } else if (navigator.onLine) {
-         nativeSource = streamUrlToAssign;
-      } else {
-         toast.error("İnternet bağlantınız yok ve bu şarkı indirilmemiş.");
-         set({ isPlaying: false });
-         return;
-      }
+            await AudioPlayer.onAudioEnd({ audioId: 'novision-track' }, () => {
+              get().playNext();
+            });
 
-      // SESİ OYNATMA AŞAMASI
-      if (window.Capacitor && AudioPlayer) {
-        try {
-          await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
-          await AudioPlayer.create({
-            audioId: 'novision-track',
-            audioSource: nativeSource,
-            friendlyTitle: song.title,
-            artistName: song.channel,
-            artworkSource: nativeArtwork,
-            useForNotification: true,
-            isBackgroundMusic: true,
-            loop: false,
-          });
+            await AudioPlayer.onPlaybackStatusChange({ audioId: 'novision-track' }, (result) => {
+              if (result.status === 'playing') set({ isPlaying: true });
+              else if (result.status === 'paused') set({ isPlaying: false });
+            });
 
-          await AudioPlayer.onAudioEnd({ audioId: 'novision-track' }, () => {
-            get().playNext();
-          });
+            await AudioPlayer.initialize({ audioId: 'novision-track' }).catch(() => {});
+            await AudioPlayer.play({ audioId: 'novision-track' });
+            set({ isPlaying: true });
 
-          await AudioPlayer.onPlaybackStatusChange({ audioId: 'novision-track' }, (result) => {
-            if (result.status === 'playing') set({ isPlaying: true });
-            else if (result.status === 'paused') set({ isPlaying: false });
-          });
+            const interval = setInterval(async () => {
+              const currentState = get();
+              if (currentState.activeEngine !== 'html5' || !currentState.isPlaying) return;
+              try {
+                const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
+                const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
+                if (timeRes && timeRes.currentTime !== undefined) {
+                  set({ currentTime: timeRes.currentTime });
+                }
+                if (durRes && durRes.duration !== undefined && durRes.duration > 0) {
+                  set({ duration: durRes.duration });
+                }
+              } catch (e) {}
+            }, 1000);
 
-          await AudioPlayer.initialize({ audioId: 'novision-track' }).catch(() => {});
-          await AudioPlayer.play({ audioId: 'novision-track' });
-          set({ isPlaying: true });
+            set({ nativeProgressInterval: interval });
 
-          const interval = setInterval(async () => {
-            const currentState = get();
-            if (currentState.activeEngine !== 'html5' || !currentState.isPlaying) return;
-            try {
-              const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
-              const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
-              if (timeRes && timeRes.currentTime !== undefined) {
-                set({ currentTime: timeRes.currentTime });
-              }
-              if (durRes && durRes.duration !== undefined && durRes.duration > 0) {
-                set({ duration: durRes.duration });
-              }
-            } catch (e) {}
-          }, 1000);
+          } catch (nativeErr) {
+            console.error("Native Audio Player hatası:", nativeErr);
+            get().setFallbackToYoutube();
+          }
+        };
 
-          set({ nativeProgressInterval: interval });
+        runNativeAudio();
+    } else {
+        // WEB VEYA ÖN PLANDAKİ YOUTUBE BAŞLATMALARINDA SETTIMEOUT KULLANILABİLİR (GECİKME YOKTUR)
+        setTimeout(() => {
+          const html5El = get().html5PlayerRef;
+          const ytEl = get().playerRef;
 
-        } catch (nativeErr) {
-          console.error("Native Audio Player hatası:", nativeErr);
-          get().setFallbackToYoutube();
-        }
-
-      } else if (html5El) {
-        const isSameSong = html5El.getAttribute('data-song-id') === song.id;
-        if (!isSameSong) {
-          html5El.setAttribute('data-song-id', song.id);
-          html5El.src = nativeSource;
-          html5El.load();
-        }
-        html5El.play().catch(e => {
-          console.error("HTML5 Play Hatası:", e);
-          get().setFallbackToYoutube();
-        });
-      }
-    }, 50);
+          if (nextEngine === 'html5' && localData && html5El) {
+            let finalSrc = localData.localAudioUrl;
+            const isSameSong = html5El.getAttribute('data-song-id') === song.id;
+            if (!isSameSong) {
+              html5El.setAttribute('data-song-id', song.id);
+              html5El.src = finalSrc;
+              html5El.load();
+            }
+            html5El.play().catch(e => {
+              console.error("HTML5 Play Hatası:", e);
+              set({ isPlaying: false });
+            });
+          } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
+            if (html5El) html5El.pause();
+            ytEl.unMute();
+            ytEl.setVolume(get().volume || 100);
+            ytEl.playVideo();
+          }
+        }, 50);
+    }
 
     get().fetchLyrics(song);
 
