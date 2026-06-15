@@ -3,12 +3,13 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   MdPlayArrow, MdShuffle, MdEdit, MdCheck, MdArrowBack, 
-  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload 
+  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload, MdFavorite, MdLibraryAdd, MdCheckCircle 
 } from 'react-icons/md';
 import { db } from '../firebase';
-import { ref, get, set } from 'firebase/database';
+import { ref, get, set, push } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
+import { getTrendings } from '../utils/youtubeApi';
 import toast from 'react-hot-toast';
 
 const PlaylistDetail = () => {
@@ -16,12 +17,19 @@ const PlaylistDetail = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { user } = useAuthStore();
-  const { 
-    playSong, isShuffle, toggleShuffle, downloadedSongs, downloadQueue, 
-    addToDownloadQueueList, downloadQueueList, localPlaylists, 
-    updateLocalPlaylistSongs, updateLocalPlaylistName 
-  } = usePlayerStore();
+  
+  // ZUSTAND OPTİMİZASYONU: Uygulama çökmesini engellemek için parçalı çekim yapıldı.
+  const user = useAuthStore(s => s.user);
+  const playSong = usePlayerStore(s => s.playSong);
+  const isShuffle = usePlayerStore(s => s.isShuffle);
+  const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
+  const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
+  const downloadQueue = usePlayerStore(s => s.downloadQueue);
+  const addToDownloadQueueList = usePlayerStore(s => s.addToDownloadQueueList);
+  const localPlaylists = usePlayerStore(s => s.localPlaylists);
+  const updateLocalPlaylistSongs = usePlayerStore(s => s.updateLocalPlaylistSongs);
+  const updateLocalPlaylistName = usePlayerStore(s => s.updateLocalPlaylistName);
+  const likedSongs = usePlayerStore(s => s.likedSongs);
   
   const [playlist, setPlaylist] = useState(null);
   const [songs, setSongs] = useState([]);
@@ -33,13 +41,22 @@ const PlaylistDetail = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
+  
+  // YENİ: KİTAPLIĞA EKLENDİ Mİ KONTROLÜ
+  const [isAddedToLibrary, setIsAddedToLibrary] = useState(false);
 
   const ownerId = searchParams.get('owner') || (user ? user.uid : null);
   
   const isLocal = id.startsWith('local_');
   const isDownloadedFolder = id === 'downloaded';
+  const isLiked = id === 'liked';
+  const isTrendTR = id === 'trend_tr';
+  const isTrendGlobal = id === 'trend_global';
+  const isTrend = isTrendTR || isTrendGlobal;
+  
   const isMyPlaylist = isLocal || (user && ownerId === user.uid);
-  const canEdit = !isDownloadedFolder && isMyPlaylist;
+  const canEdit = !isDownloadedFolder && !isLiked && !isTrend && isMyPlaylist && !playlist?.readonly;
+  const isExternal = !isMyPlaylist && !isTrend && !isLiked && !isDownloadedFolder;
 
   useEffect(() => {
     if (isDownloadedFolder) {
@@ -47,16 +64,19 @@ const PlaylistDetail = () => {
       setPlaylist({ name: 'İndirilen Şarkılar', songs: dSongs });
       setSongs(dSongs);
       setEditNameValue('İndirilen Şarkılar');
+    } else if (isLiked) {
+      setPlaylist({ name: 'Beğenilen Şarkılar', songs: likedSongs });
+      setSongs(likedSongs);
+      setEditNameValue('Beğenilen Şarkılar');
+    } else if (isTrendTR) {
+      getTrendings('TR').then(data => { setPlaylist({ name: 'Türkiye Trendleri', songs: data }); setSongs(data); setEditNameValue('Türkiye Trendleri'); });
+    } else if (isTrendGlobal) {
+      getTrendings('US').then(data => { setPlaylist({ name: 'Global Trendler', songs: data }); setSongs(data); setEditNameValue('Global Trendler'); });
     } else if (isLocal) {
       const pl = localPlaylists.find(p => p.id === id);
-      if (pl) {
-        setPlaylist(pl);
-        setSongs(pl.songs || []);
-        setEditNameValue(pl.name);
-      }
+      if (pl) { setPlaylist(pl); setSongs(pl.songs || []); setEditNameValue(pl.name); }
     } else if (ownerId && navigator.onLine) {
-      const fetchPlaylist = async () => {
-        const snap = await get(ref(db, `users/${ownerId}/playlists/${id}`));
+      get(ref(db, `users/${ownerId}/playlists/${id}`)).then(snap => {
         if (snap.exists()) {
           const data = snap.val();
           setPlaylist(data);
@@ -64,10 +84,37 @@ const PlaylistDetail = () => {
           setSongs(loadedSongs.map((s, i) => ({ ...s, uniqueId: s.uniqueId || `${s.id}-${Date.now()}-${i}` })));
           setEditNameValue(data.name);
         }
-      };
-      fetchPlaylist();
+      });
     }
-  }, [id, user, ownerId, downloadedSongs, localPlaylists]);
+
+    // YENİ: Başkasının listesiyse, daha önce kitaplığa eklenip eklenmediğini kontrol et
+    if (user && isExternal && navigator.onLine) {
+      get(ref(db, `users/${user.uid}/playlists`)).then(snap => {
+        if (snap.exists()) {
+          const myPlaylists = snap.val();
+          const alreadyAdded = Object.values(myPlaylists).some(p => p.originalId === id);
+          setIsAddedToLibrary(alreadyAdded);
+        }
+      });
+    }
+  }, [id, user, ownerId, downloadedSongs, localPlaylists, likedSongs, isExternal]);
+
+  const handleSaveToLibrary = async () => {
+    if(!user) return toast.error("Giriş yapmalısınız!");
+    if(isAddedToLibrary) return toast.error("Bu liste zaten kitaplığınızda!");
+
+    const newRef = push(ref(db, `users/${user.uid}/playlists`));
+    await set(newRef, {
+      id: newRef.key,
+      name: playlist.name,
+      songs: songs,
+      readonly: true,
+      originalOwner: ownerId,
+      originalId: id // Bu liste kime ait onu kaydediyoruz
+    });
+    setIsAddedToLibrary(true);
+    toast.success("Kitaplığa eklendi!");
+  };
 
   const onDragEnd = (result) => {
     if (!result.destination || !canEdit) return;
@@ -105,7 +152,7 @@ const PlaylistDetail = () => {
     const startIndex = isShuffle ? Math.floor(Math.random() * songs.length) : 0;
     playSong(songs[startIndex], songs, startIndex);
     
-    if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder) {
+    if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder && !isLiked && !isTrend) {
       await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: downloadedSongs[songs[0]?.id]?.localThumbUrl || songs[0]?.thumbnail || '/icon.png' });
     }
   };
@@ -129,28 +176,37 @@ const PlaylistDetail = () => {
 
   return (
     <div className="playlist-detail-page" onClick={() => setIsSortOpen(false)}>
-      <div className="back-btn-container" onClick={() => navigate('/library')}><MdArrowBack size={28} /></div>
+      
+      {/* DÜZELTME: Geri tuşu artık navigate(-1) kullanarak geldiğin sayfaya döndürür */}
+      <div className="back-btn-container" onClick={() => navigate(-1)}><MdArrowBack size={28} /></div>
 
-      <div className="playlist-header-large">
-        {isNameEditing && canEdit ? (
-          <div className="edit-name-container">
-            <input type="text" className="edit-name-input" value={editNameValue} onChange={(e) => setEditNameValue(e.target.value)} autoFocus />
-            <button className="icon-btn" onClick={() => setIsNameEditing(false)}><MdCheck size={28} color="var(--accent)" /></button>
-          </div>
-        ) : (
-          <div className="title-container">
-            <h1 className="playlist-huge-title">{editNameValue}</h1>
-            {isEditMode && canEdit && (
-              <button className="icon-btn" onClick={() => setIsNameEditing(true)}><MdEdit size={24} color="var(--text-muted)" /></button>
-            )}
+      <div className="playlist-header-large" style={{ display: 'flex', alignItems: 'center', gap: '25px' }}>
+        
+        {isLiked && (
+          <div style={{ width: '120px', height: '120px', borderRadius: '12px', background: 'linear-gradient(135deg, #FF2A54, #8b0021)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, boxShadow: '0 10px 30px rgba(255, 42, 84, 0.4)' }}>
+            <MdFavorite size={64} color="white" />
           </div>
         )}
-        <p className="playlist-info-text">
-          {safeSongs.length} Şarkı 
-          {isDownloadedFolder && " • (Cihazına İndirilenler)"}
-          {isLocal && " • (Yerel Liste)"}
-          {(!isMyPlaylist && !isDownloadedFolder) && " • (Başkasının Listesi)"}
-        </p>
+        
+        <div style={{ flex: 1 }}>
+          {isNameEditing && canEdit ? (
+            <div className="edit-name-container">
+              <input type="text" className="edit-name-input" value={editNameValue} onChange={(e) => setEditNameValue(e.target.value)} autoFocus />
+              <button className="icon-btn" onClick={() => setIsNameEditing(false)}><MdCheck size={28} color="var(--accent)" /></button>
+            </div>
+          ) : (
+            <div className="title-container">
+              <h1 className="playlist-huge-title">{editNameValue}</h1>
+              {isEditMode && canEdit && <button className="icon-btn" onClick={() => setIsNameEditing(true)}><MdEdit size={24} color="var(--text-muted)" /></button>}
+            </div>
+          )}
+          <p className="playlist-info-text">
+            {safeSongs.length} Şarkı 
+            {playlist.readonly && " • (Salt Okunur)"}
+            {isDownloadedFolder && " • (İndirilenler)"}
+            {isLocal && " • (Yerel)"}
+          </p>
+        </div>
       </div>
 
       {isDownloadMode && (
@@ -173,6 +229,22 @@ const PlaylistDetail = () => {
             {!isDownloadedFolder && safeSongs.length > 0 && navigator.onLine && (
               <button className="icon-btn" title="Toplu İndir" onClick={() => setIsDownloadMode(true)} style={{ marginLeft: '15px' }}>
                 <MdFileDownload size={32} color="white" />
+              </button>
+            )}
+
+            {isExternal && (
+              <button 
+                className="secondary-btn" 
+                onClick={handleSaveToLibrary} 
+                disabled={isAddedToLibrary}
+                style={{ 
+                  marginLeft: '15px', display: 'flex', alignItems: 'center', gap: '8px', 
+                  background: isAddedToLibrary ? 'var(--bg-active)' : 'var(--accent)', 
+                  color: isAddedToLibrary ? 'var(--text-muted)' : 'white', 
+                  border: 'none', cursor: isAddedToLibrary ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isAddedToLibrary ? <><MdCheckCircle size={20} /> Eklendi</> : <><MdLibraryAdd size={20} /> Kitaplığa Ekle</>}
               </button>
             )}
 
@@ -206,10 +278,6 @@ const PlaylistDetail = () => {
         </div>
       )}
 
-      {downloadQueueList.length > 0 && (
-        <p style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 'bold', marginBottom: '15px' }}>Sırada bekleyen {downloadQueueList.length} indirme var...</p>
-      )}
-
       <div className="playlist-songs">
         {safeSongs.length === 0 ? (
           <p style={{ color: 'gray', marginTop: '20px' }}>Bu liste boş.</p>
@@ -221,10 +289,6 @@ const PlaylistDetail = () => {
                   {displaySongs.map((song, displayIndex) => {
                     const trueIndex = safeSongs.findIndex(s => s.uniqueId === song.uniqueId);
                     const isSongDownloaded = !!downloadedSongs[song.id];
-                    const isSongDownloading = downloadQueue.includes(song.id);
-                    const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
-
-                    // Kapak Fotoğrafını Doğru Kaynaktan Çek
                     const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
 
                     return (
@@ -233,9 +297,7 @@ const PlaylistDetail = () => {
                           <div className={`song-row dnd-row ${snapshot.isDragging ? 'dragging' : ''} ${isEditMode ? 'edit-mode' : ''}`} ref={provided.innerRef} {...provided.draggableProps}>
                             {isEditMode && canEdit && <div className="drag-handle" {...provided.dragHandleProps}><MdDragIndicator size={24} color="gray" /></div>}
                             
-                            {isDownloadMode && (
-                              <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />
-                            )}
+                            {isDownloadMode && <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />}
 
                             <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
                               <img src={rowThumb} alt={song.title} className="song-thumb" />
@@ -246,8 +308,6 @@ const PlaylistDetail = () => {
                               <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span>{song.title}</span>
                                 {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>}
-                                {isSongDownloading && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px' }}>İniyor...</span>}
-                                {isSongInWaitQueue && <span style={{ fontSize: '10px', color: 'gray' }}>Sırada</span>}
                               </div>
                               <div className="song-channel">{song.channel}</div>
                             </div>

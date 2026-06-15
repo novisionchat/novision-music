@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MdAdd, MdMoreVert, MdFileDownload } from 'react-icons/md';
+import { MdAdd, MdMoreVert, MdFileDownload, MdFavorite } from 'react-icons/md';
 import { db } from '../firebase';
 import { ref, onValue, push, set, remove, get } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
@@ -8,14 +8,19 @@ import usePlayerStore from '../store/usePlayerStore';
 import toast from 'react-hot-toast';
 
 const Library = () => {
-  const { user } = useAuthStore();
-  const { localPlaylists, downloadedSongs, createLocalPlaylist, deleteLocalPlaylist } = usePlayerStore();
+  const user = useAuthStore(s => s.user);
+  
+  const localPlaylists = usePlayerStore(s => s.localPlaylists);
+  const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
+  const createLocalPlaylist = usePlayerStore(s => s.createLocalPlaylist);
+  const deleteLocalPlaylist = usePlayerStore(s => s.deleteLocalPlaylist);
+  const likedSongs = usePlayerStore(s => s.likedSongs);
+
   const [playlists, setPlaylists] = useState([]);
   const navigate = useNavigate();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
-  
   const [modalMode, setModalMode] = useState('create'); 
   const [importLink, setImportLink] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -100,20 +105,6 @@ const Library = () => {
     setIsModalOpen(false); setNewPlaylistName(""); setImportLink(""); setModalMode('create');
   };
 
-  const handleShare = (e, playlistId) => {
-    e.stopPropagation();
-    const url = `${window.location.origin}/playlist/${playlistId}?owner=${user.uid}`;
-    navigator.clipboard.writeText(url);
-    toast.success("Liste bağlantısı kopyalandı!");
-    setActiveDropdown(null);
-  };
-
-  const handleEdit = (e, playlistId) => {
-    e.stopPropagation();
-    navigate(`/playlist/${playlistId}`, { state: { autoEdit: true } });
-  };
-
-  // TOAST TABANLI ÖZEL ONAY MODALI (window.confirm YERİNE)
   const handleDelete = async (e, playlistId, playlistName) => {
     e.stopPropagation();
     setActiveDropdown(null);
@@ -150,7 +141,14 @@ const Library = () => {
       <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>Oluşturduğun veya indirdiğin tüm çalma listelerin.</p>
 
       <div className="home-grid">
-        {/* İNDİRİLEN ŞARKILAR KLASÖRÜ */}
+        <div className="home-card" style={{ position: 'relative' }} onClick={() => navigate(`/playlist/liked`)}>
+          <div className="card-thumb-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #FF2A54, #8b0021)' }}>
+            <MdFavorite size={48} color="white" />
+          </div>
+          <div className="card-title">Beğenilen Şarkılar</div>
+          <div className="card-subtitle">{likedSongs.length} Şarkı</div>
+        </div>
+
         <div className="home-card" style={{ position: 'relative' }} onClick={() => navigate(`/playlist/downloaded`)}>
           <div className="card-thumb-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#282828' }}>
             <MdFileDownload size={48} color="white" />
@@ -159,7 +157,6 @@ const Library = () => {
           <div className="card-subtitle">{Object.keys(downloadedSongs).length} Şarkı</div>
         </div>
 
-        {/* YEREL PLAYLİSTLER */}
         {localPlaylists.map(pl => {
           const thumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
           return (
@@ -171,7 +168,7 @@ const Library = () => {
                 </button>
                 {activeDropdown === pl.id && (
                   <div className="custom-dropdown-menu">
-                    <div className="dropdown-item" onClick={(e) => handleEdit(e, pl.id)}>Düzenle</div>
+                    <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>
                     <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
                   </div>
                 )}
@@ -182,7 +179,6 @@ const Library = () => {
           );
         })}
 
-        {/* BULUT (FİREBASE) PLAYLİSTLERİ */}
         {playlists.map(pl => {
           const thumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
           return (
@@ -194,14 +190,14 @@ const Library = () => {
                 </button>
                 {activeDropdown === pl.id && (
                   <div className="custom-dropdown-menu">
-                    <div className="dropdown-item" onClick={(e) => handleShare(e, pl.id)}>Paylaş</div>
-                    <div className="dropdown-item" onClick={(e) => handleEdit(e, pl.id)}>Düzenle</div>
+                    <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/playlist/${pl.id}?owner=${user.uid}`); toast.success("Kopyalandı!"); }}>Paylaş</div>
+                    {!pl.readonly && <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>}
                     <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
                   </div>
                 )}
               </div>
               <div className="card-title">{pl.name}</div>
-              <div className="card-subtitle">{pl.songs ? pl.songs.length : 0} Şarkı</div>
+              <div className="card-subtitle">{pl.readonly ? 'Salt Okunur' : (pl.songs ? pl.songs.length : 0) + ' Şarkı'}</div>
             </div>
           );
         })}

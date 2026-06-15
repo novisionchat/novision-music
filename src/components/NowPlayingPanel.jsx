@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import usePlayerStore from '../store/usePlayerStore';
 import { 
   MdExpandMore, MdPlayArrow, MdPause, MdSkipNext, MdSkipPrevious, 
   MdPlaylistAdd, MdShuffle, MdRepeat, MdOpenInFull, MdCloseFullscreen, 
-  MdShare, MdFileDownload, MdDelete, MdClose
+  MdShare, MdFileDownload, MdDelete, MdClose, MdFavorite, MdFavoriteBorder
 } from 'react-icons/md';
 import YouTubeEngine from './YouTubeEngine';
 import toast from 'react-hot-toast';
@@ -16,12 +17,14 @@ const formatTime = (time) => {
 };
 
 const NowPlayingPanel = () => {
+  const navigate = useNavigate();
   const { 
     currentSong, isPanelOpen, isPanelFullscreen, toggleFullscreen, closePanel, 
     openAddModal, isPlaying, togglePlay, currentTime, duration, seekTo, playNext, 
     playPrev, isShuffle, isRepeat, toggleShuffle, toggleRepeat, lyrics, isLyricsLoading, 
     isVideoMode, setVideoMode, activeEngine, downloadedSongs, 
-    downloadSong, cancelDownload, deleteDownloadedSong, downloadQueue, downloadProgress 
+    downloadSong, cancelDownload, deleteDownloadedSong, downloadQueue, downloadProgress,
+    likedSongs, toggleLike
   } = usePlayerStore();
   
   const lyricsContainerRef = useRef(null);
@@ -47,6 +50,7 @@ const NowPlayingPanel = () => {
 
   if (!currentSong) return null;
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+  const isLiked = currentSong ? likedSongs.some(s => s.id === currentSong.id) : false;
 
   const handleShare = () => {
     navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${currentSong.id}`);
@@ -87,9 +91,24 @@ const NowPlayingPanel = () => {
           <img src={displayThumb} alt="cover" className="panel-artwork" style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} />
         </div>
 
+        {/* YENİLENMİŞ PANEL INFO KISMI */}
         <div className={`panel-info ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
-          <h2 className="panel-title">{currentSong.title}</h2>
-          <p className="panel-artist">{currentSong.channel}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, paddingRight: '15px' }}>
+              <h2 className="panel-title">{currentSong.title}</h2>
+              <p className="panel-artist" 
+                 onClick={() => { closePanel(); navigate(`/artist/${encodeURIComponent(currentSong.channel)}`); }} 
+                 style={{ cursor: 'pointer', display: 'inline-block', transition: '0.2s' }}
+                 onMouseOver={(e) => e.target.style.color = "white"}
+                 onMouseOut={(e) => e.target.style.color = "rgba(255,255,255,0.7)"}
+              >
+                {currentSong.channel}
+              </p>
+            </div>
+            <button className="icon-btn" onClick={() => toggleLike(currentSong)} style={{ marginTop: '5px' }}>
+              {isLiked ? <MdFavorite size={28} color="var(--accent)" /> : <MdFavoriteBorder size={28} color="var(--text-muted)" />}
+            </button>
+          </div>
         </div>
 
         <div className="panel-controls">
@@ -115,7 +134,6 @@ const NowPlayingPanel = () => {
         {!isLyricsExpanded && (
           <div className="panel-actions">
             {isDownloaded ? (
-              // TOAST TABANLI ÖZEL SİLME ONAY MODALI (window.confirm YERİNE)
               <button className="icon-btn" title="Cihazdan Sil" onClick={() => {
                 toast((t) => (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '220px', padding: '10px 5px' }}>
