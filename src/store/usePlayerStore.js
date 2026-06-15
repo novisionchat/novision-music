@@ -4,7 +4,7 @@ import { ref, set as firebaseSet } from 'firebase/database';
 import localforage from 'localforage';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { AudioPlayer } from '@mediagrid/capacitor-native-audio';
-import toast from 'react-hot-toast'; // TOAST EKLENDİ
+import toast from 'react-hot-toast';
 
 localforage.config({ name: 'NovisionMusic', storeName: 'offline_songs' });
 
@@ -39,6 +39,7 @@ const usePlayerStore = create((set, get) => ({
   downloadedMetadata: {}, 
   localPlaylists: [],     
   isOfflineMode: !navigator.onLine, 
+  currentStreamUrl: null, 
   
   downloadQueue: [], downloadProgress: {}, downloadXHRs: {}, downloadQueueList: [],
 
@@ -69,6 +70,14 @@ const usePlayerStore = create((set, get) => ({
 
   initOfflineStorage: async () => {
     try {
+      const handleVisibilityChange = () => {
+        const isActive = document.visibilityState === 'visible';
+        get().handleAppStateChange(isActive);
+      };
+      
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
       let metadata = {}; 
       let lPlaylists = []; 
       let loadedSongs = {};
@@ -116,6 +125,7 @@ const usePlayerStore = create((set, get) => ({
             }
           }
           set({ downloadedSongs: loadedSongs });
+          console.log(`📦 [APK - Cihaz Hafızası] ${Object.keys(loadedSongs).length} çevrimdışı şarkı yüklendi.`);
         } catch (dirError) {
           console.warn("İndirilen müzik klasörü henüz boş:", dirError);
         }
@@ -142,6 +152,7 @@ const usePlayerStore = create((set, get) => ({
             }
           }
           set({ downloadedSongs: loadedSongs });
+          console.log(`📦 [TARAYICI - IndexedDB] ${Object.keys(loadedSongs).length} çevrimdışı şarkı Blob olarak yüklendi.`);
         } catch (webError) {
           console.error("Tarayıcı önbellek yükleme hatası:", webError);
         }
@@ -324,6 +335,111 @@ const usePlayerStore = create((set, get) => ({
     } catch(e) { set({ lyrics: [], isLyricsLoading: false }); }
   },
 
+  // SEAMLESS HANDOFF (ARKA PLANA / ÖN PLANA GEÇİŞ KONTROLCÜSÜ)
+  handleAppStateChange: async (isActive) => {
+    const state = get();
+    const { currentSong, isPlaying, currentTime, activeEngine, currentStreamUrl, playerRef, html5PlayerRef } = state;
+
+    if (!currentSong || !isPlaying) return;
+
+    // Şarkı çevrimdışı (yerel) ise zaten sorunsuz çalar, müdahale etmiyoruz
+    const localData = state.downloadedSongs[currentSong.id];
+    if (localData) return;
+
+    if (!isActive) {
+      console.log("📲 [SİSTEM] Kullanıcı uygulamadan çıktı / ekranı kilitledi.");
+      
+      if (activeEngine === 'youtube') {
+        if (currentStreamUrl) {
+          console.log(`🔄 [KESİNTİSİZ DEVİR] YouTube Iframe durduruluyor, saf ses akışına geçiliyor. Geçiş zamanı: ${currentTime} saniye.`);
+          
+          if (playerRef && typeof playerRef.pauseVideo === 'function') {
+            playerRef.pauseVideo();
+          }
+
+          set({ activeEngine: 'html5' });
+
+          if (window.Capacitor && AudioPlayer) {
+            try {
+              await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
+              await AudioPlayer.create({
+                audioId: 'novision-track',
+                audioSource: currentStreamUrl,
+                friendlyTitle: currentSong.title,
+                artistName: currentSong.channel,
+                artworkSource: currentSong.thumbnail || '/icon.png',
+                useForNotification: true,
+                isBackgroundMusic: true,
+                loop: false,
+              });
+              await AudioPlayer.onAudioEnd({ audioId: 'novision-track' }, () => get().playNext());
+              await AudioPlayer.onPlaybackStatusChange({ audioId: 'novision-track' }, (result) => {
+                if (result.status === 'playing') set({ isPlaying: true });
+                else if (result.status === 'paused') set({ isPlaying: false });
+              });
+              await AudioPlayer.initialize({ audioId: 'novision-track' }).catch(() => {});
+              await AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(currentTime) });
+              await AudioPlayer.play({ audioId: 'novision-track' });
+            } catch (err) {
+              console.error("Native Audio arka plan hatası:", err);
+            }
+          } else if (html5PlayerRef) {
+            html5PlayerRef.src = currentStreamUrl;
+            html5PlayerRef.currentTime = currentTime;
+            html5PlayerRef.play().catch(e => console.error("HTML5 Arka plan çalma hatası:", e));
+          }
+        } else {
+          console.warn("⚠️ [UYARI] Arka plan akış linki bulunamadığı için müzik geçici olarak durduruldu.");
+          if (playerRef && typeof playerRef.pauseVideo === 'function') {
+            playerRef.pauseVideo();
+          }
+          set({ isPlaying: false });
+        }
+      }
+    } else {
+      console.log("📲 [SİSTEM] Kullanıcı uygulamaya (ön plana) geri döndü.");
+      if (activeEngine === 'html5') {
+        console.log(`🔄 [KESİNTİSİZ DEVİR] Saf ses durduruluyor, YouTube Iframe'e geri dönülüyor. Dönüş zamanı: ${currentTime} saniye.`);
+
+        if (window.Capacitor && AudioPlayer) {
+          await AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
+        } else if (html5PlayerRef) {
+          html5PlayerRef.pause();
+        }
+
+        set({ activeEngine: 'youtube' });
+
+        if (playerRef && typeof playerRef.unMute === 'function') {
+          playerRef.unMute();
+          playerRef.setVolume(state.volume || 100);
+          playerRef.seekTo(currentTime, true);
+          playerRef.playVideo();
+        }
+      }
+    }
+  },
+
+  setFallbackToYoutube: () => {
+    const state = get();
+    const ytEl = state.playerRef;
+    const html5El = state.html5PlayerRef;
+    
+    console.log("🚨 [ACİL DURUM] Ses akışında sorun oldu. YouTube Iframe'e dönülüyor!");
+    set({ activeEngine: 'youtube' });
+
+    if (html5El) html5El.pause();
+    if (window.Capacitor && AudioPlayer) {
+      AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
+    }
+
+    if (ytEl && typeof ytEl.unMute === 'function') {
+      ytEl.unMute();
+      ytEl.setVolume(state.volume || 100);
+      ytEl.seekTo(state.currentTime, true);
+      ytEl.playVideo();
+    }
+  },
+
   playSong: (song, rawQueue = [], index = 0, fromHistory = false) => {
     const state = get();
     let newHistory = Array.isArray(state.history) ? [...state.history] : [];
@@ -337,8 +453,17 @@ const usePlayerStore = create((set, get) => ({
 
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
-    
     const nextEngine = (get().isOfflineMode && isDownloaded) ? 'html5' : 'youtube';
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const streamUrlToAssign = `${apiUrl}/api/download?id=${song.id}`;
+
+    // GELİŞTİRİCİ RAPORU
+    console.log(`\n================================`);
+    console.log(`🎵 [OYNATMA BAŞLATILDI] ${song.title}`);
+    console.log(`💾 [YEREL DURUM] Çevrimdışı indirildi mi?: ${isDownloaded ? 'EVET' : 'HAYIR'}`);
+    console.log(`⚙️  [MOTOR] Başlangıç motoru: ${nextEngine.toUpperCase()}`);
+    console.log(`🔗 [YEDEK LİNK] Arka plan için atanan link: ${streamUrlToAssign}`);
+    console.log(`================================\n`);
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
       toast.error("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
@@ -353,6 +478,7 @@ const usePlayerStore = create((set, get) => ({
       currentSong: song, queue: queue.length > 0 ? queue : [song], 
       currentIndex: index, isPlaying: true, currentTime: 0, 
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine,
+      currentStreamUrl: streamUrlToAssign,
       nativeProgressInterval: null
     });
 
@@ -366,9 +492,7 @@ const usePlayerStore = create((set, get) => ({
         if (window.Capacitor && AudioPlayer) {
           try {
             await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
-
             const nativeSource = localData.localNativeUrl || localData.localAudioUrl;
-
             const nativeArtwork = localData.localThumbUrl && !localData.localThumbUrl.startsWith('data:') 
               ? localData.localThumbUrl 
               : '/icon.png';
@@ -380,7 +504,7 @@ const usePlayerStore = create((set, get) => ({
               artistName: song.channel,
               artworkSource: nativeArtwork,
               useForNotification: true,
-              isBackgroundMusic: false,
+              isBackgroundMusic: true,
               loop: false,
             });
 
@@ -393,7 +517,7 @@ const usePlayerStore = create((set, get) => ({
               else if (result.status === 'paused') set({ isPlaying: false });
             });
 
-            await AudioPlayer.initialize({ audioId: 'novision-track' });
+            await AudioPlayer.initialize({ audioId: 'novision-track' }).catch(() => {});
             await AudioPlayer.play({ audioId: 'novision-track' });
             set({ isPlaying: true });
 
@@ -406,13 +530,10 @@ const usePlayerStore = create((set, get) => ({
                 if (timeRes && timeRes.currentTime !== undefined) {
                   set({ currentTime: timeRes.currentTime });
                 }
-                
                 if (durRes && durRes.duration !== undefined && durRes.duration > 0) {
                   set({ duration: durRes.duration });
                 }
-              } catch (e) {
-                console.error("Native süre alma hatası:", e);
-              }
+              } catch (e) {}
             }, 1000);
 
             set({ nativeProgressInterval: interval });
@@ -441,6 +562,8 @@ const usePlayerStore = create((set, get) => ({
           await AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
         }
         if (html5El) html5El.pause();
+        ytEl.unMute();
+        ytEl.setVolume(get().volume || 100);
         ytEl.playVideo();
       }
     }, 50);
@@ -480,6 +603,10 @@ const usePlayerStore = create((set, get) => ({
       } else if (html5PlayerRef) {
         if (isPlaying) html5PlayerRef.pause(); else html5PlayerRef.play();
       }
+      
+      if (playerRef && typeof playerRef.pauseVideo === 'function') {
+         if (isPlaying) playerRef.pauseVideo(); else playerRef.playVideo();
+      }
     }
   },
   
@@ -492,6 +619,7 @@ const usePlayerStore = create((set, get) => ({
       } else if (html5PlayerRef) {
         html5PlayerRef.currentTime = seconds;
       }
+      if (playerRef && playerRef.seekTo) playerRef.seekTo(seconds, true);
     }
     set({ currentTime: seconds }); 
   },
@@ -504,15 +632,7 @@ const usePlayerStore = create((set, get) => ({
   },
 
   _seekCurrentEngineToZero: () => {
-    const { activeEngine, playerRef, html5PlayerRef } = get();
-    if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) playerRef.seekTo(0);
-    if (activeEngine === 'html5') {
-      if (window.Capacitor && AudioPlayer) {
-        AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: 0 });
-      } else if (html5PlayerRef) {
-        html5PlayerRef.currentTime = 0;
-      }
-    }
+    get().seekTo(0);
   },
 
   playNext: async () => {

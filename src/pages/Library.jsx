@@ -113,16 +113,30 @@ const Library = () => {
     navigate(`/playlist/${playlistId}`, { state: { autoEdit: true } });
   };
 
+  // TOAST TABANLI ÖZEL ONAY MODALI (window.confirm YERİNE)
   const handleDelete = async (e, playlistId, playlistName) => {
     e.stopPropagation();
     setActiveDropdown(null);
-    if (window.confirm(`"${playlistName}" listesini silmek istediğinize emin misiniz?`)) {
-      if (playlistId.startsWith('local_')) {
-        deleteLocalPlaylist(playlistId);
-      } else {
-        await remove(ref(db, `users/${user.uid}/playlists/${playlistId}`));
-      }
-    }
+    
+    toast((t) => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '220px', padding: '10px 5px' }}>
+        <span style={{ fontSize: '15px', fontWeight: '500', textAlign: 'center', color: 'white' }}>
+          "{playlistName}" listesini silmek istediğinize emin misiniz?
+        </span>
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '5px' }}>
+          <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#444', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => toast.dismiss(t.id)}>İptal</button>
+          <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#ff4d4d', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={async () => {
+             toast.dismiss(t.id);
+             if (playlistId.startsWith('local_')) {
+               deleteLocalPlaylist(playlistId);
+             } else {
+               await remove(ref(db, `users/${user.uid}/playlists/${playlistId}`));
+             }
+             toast.success("Liste silindi.");
+          }}>Sil</button>
+        </div>
+      </div>
+    ), { duration: Infinity, position: 'top-center' });
   };
 
   return (

@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { ref, get, set, push } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
+import toast from 'react-hot-toast';
 
 const AddToPlaylistModal = () => {
   const { user } = useAuthStore();
@@ -49,23 +50,21 @@ const AddToPlaylistModal = () => {
   const handleAddToPlaylist = async (playlist) => {
     try {
       if (!user && !playlist.id.startsWith('local_')) {
-        alert("Bulut listesine eklemek için giriş yapmalısınız.");
+        toast.error("Bulut listesine eklemek için giriş yapmalısınız.");
         return;
       }
 
-      // DÜZELTME: Firebase Realtime DB Dizi/Obje Karışıklığı Çözümü
       let currentSongs = [];
       if (playlist.songs) {
         if (Array.isArray(playlist.songs)) {
           currentSongs = playlist.songs;
         } else if (typeof playlist.songs === 'object') {
-          // Eğer Firebase veriyi Obje olarak gönderdiyse, değerlerini diziye çeviriyoruz
           currentSongs = Object.values(playlist.songs).filter(Boolean);
         }
       }
 
       if (currentSongs.find(s => s.id === songToAdd.id)) {
-        alert("Bu şarkı zaten listede var.");
+        toast.error("Bu şarkı zaten listede var.");
         return;
       }
 
@@ -74,22 +73,21 @@ const AddToPlaylistModal = () => {
       
       if (playlist.id.startsWith('local_')) {
         updateLocalPlaylistSongs(playlist.id, updatedSongs);
-        alert(`"${songToAdd.title}" başarıyla yerel listeye eklendi!`);
+        toast.success(`"${songToAdd.title}" yerel listeye eklendi!`);
         closeAddModal();
         return;
       }
 
       if (!isOfflineMode) {
-        // DÜZELTME: Try-catch ile sarmallayarak olası Firebase kuralları (Permission) hatalarını yakalıyoruz
         await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
-        alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
+        toast.success(`"${songToAdd.title}" bulut listeye eklendi!`);
         closeAddModal();
       } else {
-        alert("Bulut listesine eklemek için internet bağlantısı gerekiyor.");
+        toast.error("Bulut listesine eklemek için internet bağlantısı gerekiyor.");
       }
     } catch (error) {
       console.error("Çalma listesine ekleme sırasında hata oluştu:", error);
-      alert("Şarkı listeye eklenemedi. Hata: " + error.message);
+      toast.error("Şarkı listeye eklenemedi.");
     }
   };
 
@@ -102,18 +100,18 @@ const AddToPlaylistModal = () => {
       if (!user || isLocalCreate || isOfflineMode) {
         const pl = { id: `local_${Date.now()}`, name: newPlaylistName.trim(), songs: [newSongData] };
         saveLocalPlaylists([...localPlaylists, pl]);
-        alert("Yerel liste oluşturuldu ve şarkı eklendi!");
+        toast.success("Yerel liste oluşturuldu ve şarkı eklendi!");
       } else {
         const newRef = push(ref(db, `users/${user.uid}/playlists`));
         await set(newRef, { id: newRef.key, name: newPlaylistName.trim(), songs: [newSongData] });
-        alert("Bulut listesi oluşturuldu ve şarkı eklendi!");
+        toast.success("Bulut listesi oluşturuldu ve şarkı eklendi!");
       }
 
       setNewPlaylistName("");
       closeAddModal();
     } catch (error) {
       console.error("Yeni liste oluşturulurken hata:", error);
-      alert("Yeni liste oluşturulamadı. Hata: " + error.message);
+      toast.error("Yeni liste oluşturulamadı.");
     }
   };
 

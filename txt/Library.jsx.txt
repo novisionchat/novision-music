@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { ref, onValue, push, set, remove, get } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
+import toast from 'react-hot-toast';
 
 const Library = () => {
   const { user } = useAuthStore();
@@ -68,7 +69,7 @@ const Library = () => {
               const newRef = push(ref(db, `users/${user.uid}/playlists`));
               const copiedSongs = (foundPlaylist.songs || []).map((s, idx) => ({ ...s, uniqueId: `${s.id}-${Date.now()}-${idx}` }));
               await set(newRef, { id: newRef.key, name: foundPlaylist.name + " (Kopya)", songs: copiedSongs });
-              alert("Novision çalma listesi başarıyla kopyalandı!");
+              toast.success("Novision çalma listesi başarıyla kopyalandı!");
               resetAndCloseModal();
               return;
             }
@@ -88,10 +89,10 @@ const Library = () => {
         const newRef = push(ref(db, `users/${user.uid}/playlists`));
         const fetchedSongs = (data.videos || []).map((s, idx) => ({ ...s, uniqueId: `${s.id}-${Date.now()}-${idx}` }));
         await set(newRef, { id: newRef.key, name: data.playlistName || "YouTube Playlist", songs: fetchedSongs });
-        alert(`"${data.playlistName}" başarıyla eklendi!`);
+        toast.success(`"${data.playlistName}" başarıyla eklendi!`);
         resetAndCloseModal();
-      } else { alert("Geçerli bir YouTube veya Novision playlist linki giriniz."); }
-    } catch (error) { alert("Playlist içe aktarılırken bir hata oluştu: " + error.message); } 
+      } else { toast.error("Geçerli bir YouTube veya Novision playlist linki giriniz."); }
+    } catch (error) { toast.error("Playlist içe aktarılırken bir hata oluştu."); } 
     finally { setIsImporting(false); }
   };
 
@@ -103,7 +104,7 @@ const Library = () => {
     e.stopPropagation();
     const url = `${window.location.origin}/playlist/${playlistId}?owner=${user.uid}`;
     navigator.clipboard.writeText(url);
-    alert("Liste bağlantısı kopyalandı!");
+    toast.success("Liste bağlantısı kopyalandı!");
     setActiveDropdown(null);
   };
 

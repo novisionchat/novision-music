@@ -4,6 +4,7 @@ import { ref, set as firebaseSet } from 'firebase/database';
 import localforage from 'localforage';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { AudioPlayer } from '@mediagrid/capacitor-native-audio';
+import toast from 'react-hot-toast'; // TOAST EKLENDİ
 
 localforage.config({ name: 'NovisionMusic', storeName: 'offline_songs' });
 
@@ -49,7 +50,7 @@ const usePlayerStore = create((set, get) => ({
 
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
-      alert("İnternet bağlantınız yok. Video oynatılamaz.");
+      toast.error("İnternet bağlantınız yok. Video oynatılamaz.");
       return;
     }
     set({ isVideoMode: val });
@@ -337,12 +338,10 @@ const usePlayerStore = create((set, get) => ({
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
     
-    // DÜZELTME: İndirilen şarkılar SADECE çevrimdışı (isOfflineMode) iken ExoPlayer ile açılır.
-    // Çevrimiçi iken indirilmiş olsa bile online YouTube motoru çalışır (Video ve akıllı oynatma için).
     const nextEngine = (get().isOfflineMode && isDownloaded) ? 'html5' : 'youtube';
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
-      alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
+      toast.error("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
       return; 
     }
 
@@ -364,15 +363,12 @@ const usePlayerStore = create((set, get) => ({
       if (nextEngine === 'html5' && localData) {
         if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
-        // CAPACITOR NATIVE PLAYER AKIŞI
         if (window.Capacitor && AudioPlayer) {
           try {
             await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
 
             const nativeSource = localData.localNativeUrl || localData.localAudioUrl;
 
-            // DÜZELTME: Base64 kapağı Android bildirim alanına göndermek 'TransactionTooLargeException'
-            // hatasıyla arka plan servisini çökertir. Çevrimdışı kapak Base64 ise hafif '/icon.png' kullanıyoruz.
             const nativeArtwork = localData.localThumbUrl && !localData.localThumbUrl.startsWith('data:') 
               ? localData.localThumbUrl 
               : '/icon.png';
@@ -382,7 +378,7 @@ const usePlayerStore = create((set, get) => ({
               audioSource: nativeSource,
               friendlyTitle: song.title,
               artistName: song.channel,
-              artworkSource: nativeArtwork, // Güvenli hafif görsel
+              artworkSource: nativeArtwork,
               useForNotification: true,
               isBackgroundMusic: false,
               loop: false,

@@ -115,8 +115,21 @@ const NowPlayingPanel = () => {
         {!isLyricsExpanded && (
           <div className="panel-actions">
             {isDownloaded ? (
+              // TOAST TABANLI ÖZEL SİLME ONAY MODALI (window.confirm YERİNE)
               <button className="icon-btn" title="Cihazdan Sil" onClick={() => {
-                if(window.confirm("İndirilen şarkı silinsin mi?")) deleteDownloadedSong(currentSong.id);
+                toast((t) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '220px', padding: '10px 5px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: '500', textAlign: 'center', color: 'white' }}>İndirilen şarkı silinsin mi?</span>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '5px' }}>
+                      <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#444', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => toast.dismiss(t.id)}>İptal</button>
+                      <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#ff4d4d', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => { 
+                         toast.dismiss(t.id); 
+                         deleteDownloadedSong(currentSong.id); 
+                         toast.success("Şarkı cihazdan silindi."); 
+                      }}>Sil</button>
+                    </div>
+                  </div>
+                ), { duration: Infinity, position: 'top-center' });
               }}>
                 <MdDelete size={28} color="#ff4d4d" />
               </button>

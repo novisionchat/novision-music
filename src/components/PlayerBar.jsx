@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import usePlayerStore from '../store/usePlayerStore';
 import { MdPlayArrow, MdPause, MdSkipNext, MdSkipPrevious } from 'react-icons/md';
 
@@ -10,16 +10,89 @@ const formatTime = (time) => {
 };
 
 const PlayerBar = () => {
-  const { currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, togglePanel, playNext, playPrev, downloadedSongs } = usePlayerStore();
+  const { currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, togglePanel, playNext, playPrev, downloadedSongs, isPanelOpen } = usePlayerStore();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   if (!currentSong) return null;
 
+  // Şarkı detayı (NowPlayingPanel) açıkken mobilde alt barın üst üste binmesini önlemek için tamamen gizliyoruz
+  if (isMobile && isPanelOpen) return null;
+
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
-  
-  // Yerel veri (Base64) varsa ÖNCELİKLE YEREL kullan. İnternet olmasa da yüklenir!
   const localData = downloadedSongs[currentSong.id];
   const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
 
+  // -----------------------------------------------------------------
+  // MOBİL GÖRÜNÜM (Opak arkaplanlı, sağa yaslı butonlu kompakt alt bar)
+  // -----------------------------------------------------------------
+  if (isMobile) {
+    return (
+      <footer 
+        className="player-bar-container" 
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          padding: '0 15px', 
+          height: '75px', 
+          cursor: 'pointer',
+          boxShadow: '0 -4px 15px rgba(0,0,0,0.6)',
+          position: 'fixed', 
+          bottom: '58px', // Mobil alt nav bar (nav menü) yüksekliğiyle uyumlu
+          left: 0, 
+          width: '100%',
+          background: '#121212', // Kesinlikle şeffaf olmayan opak koyu siyah
+          borderTop: '1px solid #282828',
+          zIndex: 99
+        }} 
+        onClick={togglePanel}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px' }}>
+          <img src={displayThumb} alt="cover" style={{ width: '48px', height: '48px', borderRadius: '6px', objectFit: 'cover' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'white', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentSong.title}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentSong.channel}</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '0 0 auto', justifyContent: 'flex-end', marginLeft: '10px' }}>
+          <button 
+            className="icon-btn" 
+            onClick={(e) => { e.stopPropagation(); playPrev(); }} 
+            style={{ padding: 0 }}
+          >
+            <MdSkipPrevious size={32} color="white" />
+          </button>
+          
+          <button 
+            className="play-pause-btn" 
+            onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+            style={{ width: '45px', height: '45px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer' }}
+          >
+            {isPlaying ? <MdPause size={26} color="black" /> : <MdPlayArrow size={26} color="black" />}
+          </button>
+          
+          <button 
+            className="icon-btn" 
+            onClick={(e) => { e.stopPropagation(); playNext(); }} 
+            style={{ padding: 0 }}
+          >
+            <MdSkipNext size={32} color="white" />
+          </button>
+        </div>
+      </footer>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // PC/MASAÜSTÜ GÖRÜNÜMÜ (Orijinal CSS sınıflarını ve Progress Barı birebir korur)
+  // -----------------------------------------------------------------
   return (
     <footer className="player-bar-container">
       <div className="now-playing-info clickable" onClick={togglePanel} style={{ cursor: 'pointer' }}>
@@ -32,14 +105,14 @@ const PlayerBar = () => {
 
       <div className="player-controls">
         <div className="main-buttons">
-          <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={28} /></button>
-          <button className="play-pause-btn" onClick={togglePlay}>
+          <button className="icon-btn" onClick={(e) => { e.stopPropagation(); playPrev(); }}><MdSkipPrevious size={28} /></button>
+          <button className="play-pause-btn" onClick={(e) => { e.stopPropagation(); togglePlay(); }}>
             {isPlaying ? <MdPause size={32} color="black" /> : <MdPlayArrow size={32} color="black" />}
           </button>
-          <button className="icon-btn" onClick={playNext}><MdSkipNext size={28} /></button>
+          <button className="icon-btn" onClick={(e) => { e.stopPropagation(); playNext(); }}><MdSkipNext size={28} /></button>
         </div>
         
-        <div className="progress-container">
+        <div className="progress-container" onClick={(e) => e.stopPropagation()}>
           <span className="time-text">{formatTime(currentTime)}</span>
           <div className="seek-bar-wrapper">
             <input 

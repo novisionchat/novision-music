@@ -6,13 +6,11 @@ const YouTubeEngine = () => {
   const { 
     currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, 
     setCurrentTime, setDuration, playNext, playPrev, togglePlay, 
-    isVideoMode, activeEngine, downloadedSongs, isOfflineMode
+    isVideoMode, activeEngine, downloadedSongs, isOfflineMode, currentTime
   } = usePlayerStore();
   
   const progressInterval = useRef(null);
   const audioRef = useRef(null);
-  
-  // YouTube Iframe API'sinin tamamen hazır olup olmadığını denetleyen durum
   const [ytReady, setYtReady] = useState(!!(window.YT && window.YT.Player));
 
   useEffect(() => {
@@ -21,7 +19,6 @@ const YouTubeEngine = () => {
       return;
     }
 
-    // İnternet geri geldiğinde API yüklenmesini her 500ms'de bir kontrol et
     const checkInterval = setInterval(() => {
       if (window.YT && window.YT.Player) {
         setYtReady(true);
@@ -34,14 +31,14 @@ const YouTubeEngine = () => {
 
   const opts = useMemo(() => ({
     height: '100%', width: '100%', 
-    playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1 },
+    playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, mute: 1 },
   }), []);
 
   useEffect(() => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
-  // Arka Plan/iOS PWA için Medya Bildirim Desteği
+  // Arka Plan/iOS PWA için Medya Bildirim Desteği (Tam Çözünürlüklü Resimler ve Butonlar)
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
@@ -50,26 +47,67 @@ const YouTubeEngine = () => {
       navigator.mediaSession.metadata = new MediaMetadata({ 
         title: currentSong.title, 
         artist: currentSong.channel, 
-        artwork: [{ src: displayThumb, sizes: '512x512', type: 'image/jpeg' }] 
+        artwork: [
+          { src: displayThumb, sizes: '96x96', type: 'image/jpeg' },
+          { src: displayThumb, sizes: '128x128', type: 'image/jpeg' },
+          { src: displayThumb, sizes: '256x256', type: 'image/jpeg' },
+          { src: displayThumb, sizes: '512x512', type: 'image/jpeg' }
+        ] 
       });
       navigator.mediaSession.setActionHandler('play', togglePlay);
       navigator.mediaSession.setActionHandler('pause', togglePlay);
       navigator.mediaSession.setActionHandler('previoustrack', playPrev);
       navigator.mediaSession.setActionHandler('nexttrack', playNext);
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+         usePlayerStore.getState().seekTo(details.seekTime);
+      });
     }
   }, [currentSong, togglePlay, playPrev, playNext, downloadedSongs]);
 
-  const onReady = (event) => { setPlayerRef(event.target); event.target.setVolume(100); };
+  // Görsel Senkronizasyon Döngüsü: Videonun Ses Motoruna Ayak Uydurmasını Sağlar (Sadece Arka Planda)
+  useEffect(() => {
+    let syncInterval;
+    if (activeEngine === 'html5') {
+      syncInterval = setInterval(() => {
+        const state = usePlayerStore.getState();
+        const ytPlayer = state.playerRef;
+        if (state.isVideoMode && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+           const ytTime = ytPlayer.getCurrentTime() || 0;
+           const storeTime = state.currentTime;
+           if (Math.abs(ytTime - storeTime) > 2) {
+             ytPlayer.seekTo(storeTime, true);
+           }
+        }
+      }, 2000);
+    }
+    return () => clearInterval(syncInterval);
+  }, [activeEngine]);
+
+  const onReady = (event) => { 
+    setPlayerRef(event.target); 
+    const currentEngine = usePlayerStore.getState().activeEngine;
+    if (currentEngine === 'html5') {
+       event.target.mute();
+    } else {
+       event.target.unMute();
+       event.target.setVolume(usePlayerStore.getState().volume || 100); 
+    }
+  };
   
   const onStateChange = (event) => {
     const { activeEngine: currentEngine } = usePlayerStore.getState();
     const player = event.target;
-    
-    if (currentEngine !== 'youtube') {
-      if (event.data === 1 || event.data === 3) player.pauseVideo(); 
-      return; 
+
+    if (currentEngine === 'html5') {
+      player.mute();
+      return;
     }
+
+    if (currentEngine !== 'youtube') return; 
     
+    player.unMute();
+    player.setVolume(usePlayerStore.getState().volume || 100);
+
     if (event.data === 1) { 
       setPlaying(true); setDuration(player.getDuration());
       if (progressInterval.current) clearInterval(progressInterval.current);
@@ -96,6 +134,15 @@ const YouTubeEngine = () => {
     setDuration(audioRef.current.duration);
   };
 
+  // SES AKIŞI HATA VERDİĞİNDE ANINDA YOUTUBE PLAYER'A DÖNEN ACİL DURUM KANCASI
+  const onAudioError = () => {
+    const state = usePlayerStore.getState();
+    if (state.activeEngine === 'html5' && navigator.onLine && !downloadedSongs[state.currentSong?.id]) {
+       console.warn("Ses akışında hata oluştu. Varsayılan oynatıcıya geçiliyor...");
+       state.setFallbackToYoutube();
+    }
+  };
+
   useEffect(() => { return () => { if (progressInterval.current) clearInterval(progressInterval.current); }; }, []);
 
   return (
@@ -116,6 +163,7 @@ const YouTubeEngine = () => {
           iframeClassName="youtube-video-fill" 
         />
       )}
+      {/* HTML5 Audio üzerinde CORS preflight engelini kaldırmak için crossOrigin tamamen silindi */}
       <audio 
         ref={audioRef}
         onPlay={onAudioPlay}
@@ -123,6 +171,7 @@ const YouTubeEngine = () => {
         onEnded={onAudioEnded}
         onTimeUpdate={onAudioTimeUpdate}
         onLoadedMetadata={onAudioLoadedMetadata}
+        onError={onAudioError}
         style={{ display: 'none' }}
         playsInline
         preload="auto"

@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { ref, get, set } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
+import toast from 'react-hot-toast';
 
 const PlaylistDetail = () => {
   const { id } = useParams();
@@ -100,7 +101,7 @@ const PlaylistDetail = () => {
   };
 
   const handlePlayAll = async () => {
-    if (songs.length === 0) return alert("Liste boş!");
+    if (songs.length === 0) return toast.error("Liste boş!");
     const startIndex = isShuffle ? Math.floor(Math.random() * songs.length) : 0;
     playSong(songs[startIndex], songs, startIndex);
     
