@@ -9,6 +9,7 @@ import Library from './pages/Library';
 import PlaylistDetail from './pages/PlaylistDetail';
 import AuthModal from './components/AuthModal';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
+import { Toaster } from 'react-hot-toast'; 
 
 // NATIVE BİLDİRİM İZNİ İÇİN RESMİ EKLENTİYİ İTHAL EDİYORUZ
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -22,7 +23,6 @@ function App() {
     initOfflineStorage();
 
     // DÜZELTME: Android 13+ için gerçek native bildirim izin istemini tetikliyoruz.
-    // Bu izin verildiğinde kilit ekranında bildirim kartı görünecek ve ekran kilitlendiğinde müzik durmayacaktır.
     if (window.Capacitor) {
       LocalNotifications.requestPermissions().then((res) => {
         console.log("Native bildirim izni sonucu:", res);
@@ -62,6 +62,39 @@ function App() {
 
   return (
     <BrowserRouter>
+      {/* SPOTIFY STİLİ ULTRA ESTETİK TOAST BİLDİRİMLERİ */}
+      <Toaster 
+        position="top-center"
+        toastOptions={{
+          duration: 4000, 
+          style: {
+            background: '#282828', // Koyu gri amoled arkaplan
+            color: '#ffffff', // Temiz beyaz metin
+            borderRadius: '50px', // Spotify tarzı tam oval (hap/pill) tasarım
+            padding: '12px 24px', // Metne nefes aldıran geniş boşluklar
+            fontSize: '14px',
+            fontWeight: '500',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.8)', // Havada süzülme hissi veren derin gölge
+            border: 'none', // Sınırları kaldırarak daha modern bir görünüm
+          },
+          success: {
+            iconTheme: {
+              primary: '#FF2A54', // Novision uygulamasının ana kırmızı vurgu rengi
+              secondary: '#ffffff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ff4d4d', // Göz yormayan uyarı kırmızısı
+              secondary: '#ffffff',
+            },
+          }
+        }}
+        containerStyle={{
+          zIndex: 999999, // Tüm modalların en önünde kalmasını sağlar
+          top: 20 // Ekranın en üstüne çok yapışmaması için ufak bir mesafe
+        }}
+      />
       <AuthModal />
       <AddToPlaylistModal />
       <Routes>

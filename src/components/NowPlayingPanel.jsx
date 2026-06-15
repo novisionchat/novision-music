@@ -6,6 +6,7 @@ import {
   MdShare, MdFileDownload, MdDelete, MdClose
 } from 'react-icons/md';
 import YouTubeEngine from './YouTubeEngine';
+import toast from 'react-hot-toast';
 
 const formatTime = (time) => {
   if (!time || isNaN(time)) return "0:00";
@@ -49,7 +50,7 @@ const NowPlayingPanel = () => {
 
   const handleShare = () => {
     navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${currentSong.id}`);
-    alert("Şarkı bağlantısı kopyalandı!");
+    toast.success("Şarkı bağlantısı kopyalandı!");
   };
 
   const localData = downloadedSongs[currentSong.id];

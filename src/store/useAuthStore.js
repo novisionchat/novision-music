@@ -1,8 +1,37 @@
 import { create } from 'zustand';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-// BURASI DÜZELTİLDİ: get -> firebaseGet olarak içeri aktarıldı (İsim çakışmasını engellemek için)
 import { ref, get as firebaseGet, set as firebaseSet } from 'firebase/database';
+import localforage from 'localforage'; // AVATAR ÖNBELLEKLEME İÇİN EKLENDİ
+
+// AVATAR CACHING FONKSİYONLARI
+const cacheAvatar = async (url) => {
+  if (!url || url === '/icon.png') return '/icon.png';
+  if (url.startsWith('data:')) return url;
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        localforage.setItem('cached_profile_avatar', reader.result);
+        resolve(reader.result);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn("Avatar önbelleklenemedi:", error);
+    return url;
+  }
+};
+
+const getCachedAvatar = async () => {
+  try {
+    return await localforage.getItem('cached_profile_avatar');
+  } catch (error) {
+    return null;
+  }
+};
 
 const useAuthStore = create((set, getStore) => ({
   user: null,
@@ -12,11 +41,16 @@ const useAuthStore = create((set, getStore) => ({
 
   setAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
 
-  initAuth: () => {
+  initAuth: async () => {
     // 1. ADIM: Uygulama açılır açılmaz yerel (önbelleklenmiş) veriyi UI'a bas
     const cachedUser = JSON.parse(localStorage.getItem('novision_user') || 'null');
     const cachedProfile = JSON.parse(localStorage.getItem('novision_profile') || 'null');
+    const cachedAvatar = await getCachedAvatar();
     
+    if (cachedProfile && cachedAvatar) {
+      cachedProfile.avatar = cachedAvatar;
+    }
+
     if (cachedUser) {
       set({ user: cachedUser, profile: cachedProfile, loading: false });
     }
@@ -33,22 +67,37 @@ const useAuthStore = create((set, getStore) => ({
         
         try {
           if (navigator.onLine) {
-            // BURADAKİ ÇAKIŞMA ÇÖZÜLDÜ: Artık firebaseGet kullanıyoruz!
             const snapshot = await firebaseGet(ref(db, `users/${currentUser.uid}`));
             const prof = snapshot.val() || {};
             
-            localStorage.setItem('novision_profile', JSON.stringify(prof));
+            const originalUrl = prof.avatar;
+            // Profil avatarını önbelleğe al ve base64 olarak state'e kaydet (UI'da anında görünmesi için)
+            if (prof.avatar) {
+              prof.avatar = await cacheAvatar(prof.avatar);
+            }
+            
+            // localStorage şişmesin diye orijinal URL'yi saklıyoruz
+            const profToSave = { ...prof, avatar: originalUrl };
+            localStorage.setItem('novision_profile', JSON.stringify(profToSave));
+            
             set({ user: currentUser, profile: prof, loading: false });
           } else {
-            set({ user: currentUser, profile: cachedProfile || {}, loading: false });
+            const avatar = await getCachedAvatar();
+            const prof = cachedProfile || {};
+            if(avatar) prof.avatar = avatar;
+            set({ user: currentUser, profile: prof, loading: false });
           }
         } catch (error) {
           console.error("Profil çekme hatası:", error);
-          set({ user: currentUser, profile: cachedProfile || {}, loading: false });
+          const avatar = await getCachedAvatar();
+          const prof = cachedProfile || {};
+          if(avatar) prof.avatar = avatar;
+          set({ user: currentUser, profile: prof, loading: false });
         }
       } else {
         localStorage.removeItem('novision_user');
         localStorage.removeItem('novision_profile');
+        localforage.removeItem('cached_profile_avatar');
         set({ user: null, profile: null, loading: false, isAuthModalOpen: navigator.onLine });
       }
     });
@@ -75,6 +124,7 @@ const useAuthStore = create((set, getStore) => ({
     await signOut(auth);
     localStorage.removeItem('novision_user');
     localStorage.removeItem('novision_profile');
+    localforage.removeItem('cached_profile_avatar');
     set({ isAuthModalOpen: true, user: null, profile: null });
   }
 }));
