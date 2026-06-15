@@ -103,6 +103,8 @@ const usePlayerStore = create((set, get) => ({
                 const audioUri = await Filesystem.getUri({ path: fileName, directory: Directory.Data });
                 
                 let localThumbUrl = null;
+                let localThumbFileUrl = null; // Kilit ekranının okuyabilmesi için ham file:// yolu
+                
                 const hasThumb = result.files.some(f => {
                   const fName = typeof f === 'string' ? f : f.name;
                   return fName === `${id}_thumb.jpg`;
@@ -110,9 +112,9 @@ const usePlayerStore = create((set, get) => ({
 
                 if (hasThumb) {
                   try {
-                    // ANDROID BİLDİRİMİNİN OKUYABİLMESİ İÇİN GÖRSELİ YEREL CAPACITOR SUNUCU URL'SİNE ÇEVİRİYORUZ
                     const thumbUri = await Filesystem.getUri({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-                    localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri);
+                    localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri); // Arayüz (WebView) için
+                    localThumbFileUrl = thumbUri.uri; // Kilit ekranı (Android Glide) için ham yol
                   } catch (err) { console.error("Küçük resim okuma hatası:", err); }
                 }
 
@@ -120,6 +122,7 @@ const usePlayerStore = create((set, get) => ({
                   localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
                   localNativeUrl: audioUri.uri,
                   localThumbUrl: localThumbUrl || '/icon.png',
+                  localThumbFileUrl: localThumbFileUrl || '/icon.png', // Android için ham resim yolu
                   metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
                 };
               }
@@ -148,6 +151,7 @@ const usePlayerStore = create((set, get) => ({
                 localAudioUrl: URL.createObjectURL(blob), 
                 localNativeUrl: URL.createObjectURL(blob),
                 localThumbUrl: localThumbUrl || '/icon.png',
+                localThumbFileUrl: localThumbUrl || '/icon.png',
                 metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
               }; 
             }
@@ -246,7 +250,6 @@ const usePlayerStore = create((set, get) => ({
               if (thumbBlob) {
                 const base64Thumb = await blobToBase64(thumbBlob);
                 await Filesystem.writeFile({ path: `${song.id}_thumb.jpg`, data: base64Thumb, directory: Directory.Data });
-                // ANDROID UYUMU İÇİN GERÇEK YEREL URL'YE ÇEVİRİLİR
                 const thumbUri = await Filesystem.getUri({ path: `${song.id}_thumb.jpg`, directory: Directory.Data });
                 localThumbUrl = window.Capacitor.convertFileSrc(thumbUri.uri);
               }
@@ -269,6 +272,7 @@ const usePlayerStore = create((set, get) => ({
                     localAudioUrl, 
                     localNativeUrl, 
                     localThumbUrl: localThumbUrl || song.thumbnail, 
+                    localThumbFileUrl: localNativeUrl ? localNativeUrl.replace('.mp3', '_thumb.jpg') : song.thumbnail, // İndirilirken yerel Glide resim yolu atanır
                     metadata: newMetadata 
                   } 
                 },
@@ -345,9 +349,9 @@ const usePlayerStore = create((set, get) => ({
 
     if (!currentSong || !isPlaying) return;
 
-    // Şarkı çevrimdışı (yerel) ise zaten sorunsuz çalar, müdahale etmiyoruz
-    const localData = state.downloadedSongs[currentSong.id];
-    if (localData) return;
+    // GÜNCELLEME: Sadece cihaz internete bağlı değilse ve offline ise geçişi iptal ediyoruz.
+    // İnternet varken indirilmiş şarkılar da tamamen çevrimiçi mantığıyla kesintisiz devredilir!
+    if (get().isOfflineMode) return;
 
     if (!isActive) {
       console.log("📲 [SİSTEM] Kullanıcı uygulamadan çıktı / ekranı kilitledi.");
@@ -455,9 +459,10 @@ const usePlayerStore = create((set, get) => ({
     }
 
     const localData = state.downloadedSongs[song.id];
-    const isDownloaded = !!localData;
     
-    // GÜNCELLEME: Şarkı arka planda geçiş yaptıysa motoru doğrudan html5/saf ses tutuyoruz!
+    // ALTIN KURAL GÜNCELLEMESİ: Eğer offline modda değilsek indirilen şarkıyı çevrimiçi kabul ediyoruz!
+    const isDownloaded = !!localData && get().isOfflineMode; 
+    
     const isAppBackground = document.visibilityState === 'hidden';
     const nextEngine = (get().isOfflineMode && isDownloaded) ? 'html5' 
                      : isAppBackground ? 'html5' 
@@ -491,10 +496,7 @@ const usePlayerStore = create((set, get) => ({
       nativeProgressInterval: null
     });
 
-    // -----------------------------------------------------------------
-    // DÜZELTME: ARKA PLANDA ÇALIŞIRKEN DETECT EDİLEN KISI KUSURSUZ ÇALIŞSIN DİYE
-    // YEREL MOBİL SES MOTORUNU SETTIMEOUT OLMADAN, SENKRON BAŞLATIYORUZ!
-    // -----------------------------------------------------------------
+    // ARKA PLANDA KUSURSUZ ÇALIŞABİLMEK İÇİN NATIVE MOTORU SENKRON BAŞLATIYORUZ (SETTIMEOUT KALDIRILDI)
     if (window.Capacitor && AudioPlayer && nextEngine === 'html5') {
         const runNativeAudio = async () => {
           try {
@@ -504,9 +506,9 @@ const usePlayerStore = create((set, get) => ({
               ? (localData.localNativeUrl || localData.localAudioUrl) 
               : streamUrlToAssign;
 
-            // ÇEVRİMDIŞIYKEN KAPAK RESMİNİ ANDROID BİLDİRİMİNİN DOĞRUDAN OKUYABİLECEĞİ CAPACITOR LOCAL SERVER ADRESİYLE VERİYORUZ
+            // GÜNCELLEME: Çevrimdışı çalarken kilit ekranına doğrudan "file://" görsel yolunu veriyoruz
             const nativeArtwork = isDownloaded && localData 
-              ? (localData.localThumbUrl || '/icon.png') 
+              ? (localData.localThumbFileUrl || '/icon.png') 
               : (song.thumbnail || '/icon.png');
 
             await AudioPlayer.create({
@@ -558,7 +560,6 @@ const usePlayerStore = create((set, get) => ({
 
         runNativeAudio();
     } else {
-        // WEB VEYA ÖN PLANDAKİ YOUTUBE BAŞLATMALARINDA SETTIMEOUT KULLANILABİLİR (GECİKME YOKTUR)
         setTimeout(() => {
           const html5El = get().html5PlayerRef;
           const ytEl = get().playerRef;
