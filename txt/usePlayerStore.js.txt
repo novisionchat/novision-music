@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { auth, db } from '../firebase';
 import { ref, set as firebaseSet } from 'firebase/database';
 import localforage from 'localforage';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { AudioPlayer } from '@mediagrid/capacitor-native-audio';
 
 localforage.config({ name: 'NovisionMusic', storeName: 'offline_songs' });
 
@@ -43,6 +45,7 @@ const usePlayerStore = create((set, get) => ({
   isShuffle: false, isRepeat: false,
   history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
   lyrics: [], isLyricsLoading: false, isVideoMode: false,
+  nativeProgressInterval: null,
 
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
@@ -65,58 +68,89 @@ const usePlayerStore = create((set, get) => ({
 
   initOfflineStorage: async () => {
     try {
-      let metadata = {}; let lPlaylists = []; let loadedSongs = {};
+      let metadata = {}; 
+      let lPlaylists = []; 
+      let loadedSongs = {};
 
       if (window.Capacitor) {
-        const { Filesystem, Directory } = await import('@capacitor/filesystem');
-        metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
-        lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
+        try {
+          metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
+        } catch (e) { console.error("Metadata yükleme hatası:", e); }
 
-        const result = await Filesystem.readdir({ path: '', directory: Directory.Data });
-        for (let file of result.files) {
-          if (file.name.endsWith('.mp3')) {
-            const id = file.name.replace('.mp3', '');
-            const audioUri = await Filesystem.getUri({ path: file.name, directory: Directory.Data });
-            
-            let localThumbUrl = null;
-            if (result.files.some(f => f.name === `${id}_thumb.jpg`)) {
-              const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
-              localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
+        try {
+          lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
+        } catch (e) { console.error("Yerel çalma listesi yükleme hatası:", e); }
+
+        set({ downloadedMetadata: metadata, localPlaylists: lPlaylists });
+
+        try {
+          const result = await Filesystem.readdir({ path: '', directory: Directory.Data });
+          if (result && result.files) {
+            for (let file of result.files) {
+              const fileName = typeof file === 'string' ? file : file.name;
+              if (fileName && fileName.endsWith('.mp3')) {
+                const id = fileName.replace('.mp3', '');
+                const audioUri = await Filesystem.getUri({ path: fileName, directory: Directory.Data });
+                
+                let localThumbUrl = null;
+                const hasThumb = result.files.some(f => {
+                  const fName = typeof f === 'string' ? f : f.name;
+                  return fName === `${id}_thumb.jpg`;
+                });
+
+                if (hasThumb) {
+                  try {
+                    const thumbData = await Filesystem.readFile({ path: `${id}_thumb.jpg`, directory: Directory.Data });
+                    localThumbUrl = `data:image/jpeg;base64,${thumbData.data}`;
+                  } catch (err) { console.error("Küçük resim okuma hatası:", err); }
+                }
+
+                loadedSongs[id] = {
+                  localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
+                  localNativeUrl: audioUri.uri,
+                  localThumbUrl: localThumbUrl || '/icon.png',
+                  metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
+                };
+              }
             }
-
-            loadedSongs[id] = {
-              localAudioUrl: window.Capacitor.convertFileSrc(audioUri.uri),
-              localThumbUrl: localThumbUrl,
-              metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
-            };
           }
+          set({ downloadedSongs: loadedSongs });
+        } catch (dirError) {
+          console.warn("İndirilen müzik klasörü henüz boş:", dirError);
         }
+
       } else {
-        metadata = (await localforage.getItem('downloaded_metadata')) || {};
-        lPlaylists = (await localforage.getItem('local_playlists')) || [];
-        const keys = await localforage.keys();
-        for (let id of keys) {
-          if (id.endsWith('-thumb') || id === 'downloaded_metadata' || id === 'local_playlists') continue;
-          const blob = await localforage.getItem(id);
-          const thumbBlob = await localforage.getItem(`${id}-thumb`);
-          if (blob) {
-            const localThumbUrl = thumbBlob ? URL.createObjectURL(thumbBlob) : null;
-            loadedSongs[id] = { 
-              localAudioUrl: URL.createObjectURL(blob), 
-              localThumbUrl: localThumbUrl,
-              metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
-            }; 
+        try {
+          metadata = (await localforage.getItem('downloaded_metadata')) || {};
+          lPlaylists = (await localforage.getItem('local_playlists')) || [];
+          set({ downloadedMetadata: metadata, localPlaylists: lPlaylists });
+
+          const keys = await localforage.keys();
+          for (let id of keys) {
+            if (id.endsWith('-thumb') || id === 'downloaded_metadata' || id === 'local_playlists') continue;
+            const blob = await localforage.getItem(id);
+            const thumbBlob = await localforage.getItem(`${id}-thumb`);
+            if (blob) {
+              const localThumbUrl = thumbBlob ? URL.createObjectURL(thumbBlob) : null;
+              loadedSongs[id] = { 
+                localAudioUrl: URL.createObjectURL(blob), 
+                localNativeUrl: URL.createObjectURL(blob),
+                localThumbUrl: localThumbUrl || '/icon.png',
+                metadata: metadata[id] || { id, title: "Çevrimdışı", channel: "Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
+              }; 
+            }
           }
+          set({ downloadedSongs: loadedSongs });
+        } catch (webError) {
+          console.error("Tarayıcı önbellek yükleme hatası:", webError);
         }
       }
-      set({ downloadedSongs: loadedSongs, downloadedMetadata: metadata, localPlaylists: lPlaylists });
-    } catch (e) { console.error("Offline DB yüklenirken hata:", e); }
+    } catch (e) { console.error("Offline DB yüklenirken genel hata:", e); }
   },
 
   saveLocalPlaylists: async (newPlaylists) => {
     set({ localPlaylists: newPlaylists });
     if (window.Capacitor) {
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
       await safeWriteJSON(Filesystem, Directory, 'local_playlists.json', newPlaylists);
     } else { await localforage.setItem('local_playlists', newPlaylists); }
   },
@@ -185,15 +219,16 @@ const usePlayerStore = create((set, get) => ({
             } catch(e) {}
 
             let localAudioUrl = ""; let localThumbUrl = null;
+            let localNativeUrl = "";
             const newMetadata = { id: song.id, title: song.title, channel: song.channel, thumbnail: song.thumbnail, lyrics: fetchedLyrics };
             const updatedMetadata = { ...get().downloadedMetadata, [song.id]: newMetadata };
 
             if (window.Capacitor) {
-              const { Filesystem, Directory } = await import('@capacitor/filesystem');
               const base64Audio = await blobToBase64(blob);
               await Filesystem.writeFile({ path: `${song.id}.mp3`, data: base64Audio, directory: Directory.Data });
               const audioUri = await Filesystem.getUri({ path: `${song.id}.mp3`, directory: Directory.Data });
               localAudioUrl = window.Capacitor.convertFileSrc(audioUri.uri);
+              localNativeUrl = audioUri.uri;
 
               if (thumbBlob) {
                 const base64Thumb = await blobToBase64(thumbBlob);
@@ -204,6 +239,7 @@ const usePlayerStore = create((set, get) => ({
             } else {
               await localforage.setItem(song.id, blob);
               localAudioUrl = URL.createObjectURL(blob);
+              localNativeUrl = localAudioUrl;
               if (thumbBlob) { await localforage.setItem(`${song.id}-thumb`, thumbBlob); localThumbUrl = URL.createObjectURL(thumbBlob); }
               await localforage.setItem('downloaded_metadata', updatedMetadata);
             }
@@ -212,7 +248,15 @@ const usePlayerStore = create((set, get) => ({
               const newXHRs = { ...s.downloadXHRs }; delete newXHRs[song.id];
               return {
                 downloadedMetadata: updatedMetadata,
-                downloadedSongs: { ...s.downloadedSongs, [song.id]: { localAudioUrl, localThumbUrl: localThumbUrl || song.thumbnail, metadata: newMetadata } },
+                downloadedSongs: { 
+                  ...s.downloadedSongs, 
+                  [song.id]: { 
+                    localAudioUrl, 
+                    localNativeUrl, 
+                    localThumbUrl: localThumbUrl || song.thumbnail, 
+                    metadata: newMetadata 
+                  } 
+                },
                 downloadQueue: s.downloadQueue.filter(id => id !== song.id), downloadXHRs: newXHRs
               };
             });
@@ -238,7 +282,6 @@ const usePlayerStore = create((set, get) => ({
     const updatedMetadata = { ...get().downloadedMetadata }; delete updatedMetadata[id];
     if (window.Capacitor) {
       try {
-        const { Filesystem, Directory } = await import('@capacitor/filesystem');
         await Filesystem.deleteFile({ path: `${id}.mp3`, directory: Directory.Data });
         await Filesystem.deleteFile({ path: `${id}_thumb.jpg`, directory: Directory.Data }).catch(() => {});
         await safeWriteJSON(Filesystem, Directory, 'downloaded_metadata.json', updatedMetadata);
@@ -294,42 +337,113 @@ const usePlayerStore = create((set, get) => ({
     const localData = state.downloadedSongs[song.id];
     const isDownloaded = !!localData;
     
-    // Offline ise kesin HTML5, Online ise her zaman Youtube
-    const nextEngine = (!navigator.onLine && isDownloaded) ? 'html5' : 'youtube';
+    // DÜZELTME: İndirilen şarkılar SADECE çevrimdışı (isOfflineMode) iken ExoPlayer ile açılır.
+    // Çevrimiçi iken indirilmiş olsa bile online YouTube motoru çalışır (Video ve akıllı oynatma için).
+    const nextEngine = (get().isOfflineMode && isDownloaded) ? 'html5' : 'youtube';
 
     if (nextEngine === 'youtube' && !navigator.onLine) {
       alert("İnternet bağlantınız yok ve bu şarkı indirilmemiş."); 
       return; 
     }
 
+    if (state.nativeProgressInterval) {
+      clearInterval(state.nativeProgressInterval);
+    }
+
     set({ 
       currentSong: song, queue: queue.length > 0 ? queue : [song], 
       currentIndex: index, isPlaying: true, currentTime: 0, 
-      history: newHistory, historyCursor: newCursor, activeEngine: nextEngine
+      history: newHistory, historyCursor: newCursor, activeEngine: nextEngine,
+      nativeProgressInterval: null
     });
 
-    // 🚀 ANDROID MEDIAPLAYER ÇÖZÜMÜ: 
-    setTimeout(() => {
+    setTimeout(async () => {
       const html5El = get().html5PlayerRef;
       const ytEl = get().playerRef;
 
-      if (nextEngine === 'html5' && html5El && localData) {
+      if (nextEngine === 'html5' && localData) {
         if (ytEl && typeof ytEl.pauseVideo === 'function') ytEl.pauseVideo(); 
 
-        // DOĞRUDAN CAPACITOR YEREL URL'Sİ KULLANILIYOR (RAM ŞİŞMEZ, ANINDA AÇILIR)
-        let finalSrc = localData.localAudioUrl;
+        // CAPACITOR NATIVE PLAYER AKIŞI
+        if (window.Capacitor && AudioPlayer) {
+          try {
+            await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
 
-        if (html5El.src !== finalSrc) {
-          html5El.src = finalSrc;
-          html5El.load();
+            const nativeSource = localData.localNativeUrl || localData.localAudioUrl;
+
+            // DÜZELTME: Base64 kapağı Android bildirim alanına göndermek 'TransactionTooLargeException'
+            // hatasıyla arka plan servisini çökertir. Çevrimdışı kapak Base64 ise hafif '/icon.png' kullanıyoruz.
+            const nativeArtwork = localData.localThumbUrl && !localData.localThumbUrl.startsWith('data:') 
+              ? localData.localThumbUrl 
+              : '/icon.png';
+
+            await AudioPlayer.create({
+              audioId: 'novision-track',
+              audioSource: nativeSource,
+              friendlyTitle: song.title,
+              artistName: song.channel,
+              artworkSource: nativeArtwork, // Güvenli hafif görsel
+              useForNotification: true,
+              isBackgroundMusic: false,
+              loop: false,
+            });
+
+            await AudioPlayer.onAudioEnd({ audioId: 'novision-track' }, () => {
+              get().playNext();
+            });
+
+            await AudioPlayer.onPlaybackStatusChange({ audioId: 'novision-track' }, (result) => {
+              if (result.status === 'playing') set({ isPlaying: true });
+              else if (result.status === 'paused') set({ isPlaying: false });
+            });
+
+            await AudioPlayer.initialize({ audioId: 'novision-track' });
+            await AudioPlayer.play({ audioId: 'novision-track' });
+            set({ isPlaying: true });
+
+            const interval = setInterval(async () => {
+              const currentState = get();
+              if (currentState.activeEngine !== 'html5' || !currentState.isPlaying) return;
+              try {
+                const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
+                const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
+                if (timeRes && timeRes.currentTime !== undefined) {
+                  set({ currentTime: timeRes.currentTime });
+                }
+                
+                if (durRes && durRes.duration !== undefined && durRes.duration > 0) {
+                  set({ duration: durRes.duration });
+                }
+              } catch (e) {
+                console.error("Native süre alma hatası:", e);
+              }
+            }, 1000);
+
+            set({ nativeProgressInterval: interval });
+
+          } catch (nativeErr) {
+            console.error("Native Audio Player hatası:", nativeErr);
+            set({ isPlaying: false });
+          }
+
+        } else if (html5El) {
+          let finalSrc = localData.localAudioUrl;
+          const isSameSong = html5El.getAttribute('data-song-id') === song.id;
+          if (!isSameSong) {
+            html5El.setAttribute('data-song-id', song.id);
+            html5El.src = finalSrc;
+            html5El.load();
+          }
+          html5El.play().catch(e => {
+            console.error("HTML5 Play Hatası:", e);
+            set({ isPlaying: false });
+          });
         }
-        
-        html5El.play().catch(e => {
-          console.error("HTML5 Play Hatası:", e);
-          set({ isPlaying: false });
-        });
 
       } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
+        if (window.Capacitor && AudioPlayer) {
+          await AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
+        }
         if (html5El) html5El.pause();
         ytEl.playVideo();
       }
@@ -358,15 +472,31 @@ const usePlayerStore = create((set, get) => ({
     const { isPlaying, playerRef, html5PlayerRef, activeEngine } = get(); 
     if (activeEngine === 'youtube' && playerRef) { 
       if (isPlaying) playerRef.pauseVideo(); else playerRef.playVideo(); 
-    } else if (activeEngine === 'html5' && html5PlayerRef) {
-      if (isPlaying) html5PlayerRef.pause(); else html5PlayerRef.play();
+    } else if (activeEngine === 'html5') {
+      if (window.Capacitor && AudioPlayer) {
+        if (isPlaying) {
+          AudioPlayer.pause({ audioId: 'novision-track' });
+          set({ isPlaying: false });
+        } else {
+          AudioPlayer.play({ audioId: 'novision-track' });
+          set({ isPlaying: true });
+        }
+      } else if (html5PlayerRef) {
+        if (isPlaying) html5PlayerRef.pause(); else html5PlayerRef.play();
+      }
     }
   },
   
   seekTo: (seconds) => { 
     const { playerRef, html5PlayerRef, activeEngine } = get(); 
     if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { playerRef.seekTo(seconds, true); } 
-    else if (activeEngine === 'html5' && html5PlayerRef) { html5PlayerRef.currentTime = seconds; }
+    else if (activeEngine === 'html5') {
+      if (window.Capacitor && AudioPlayer) {
+        AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(seconds) });
+      } else if (html5PlayerRef) {
+        html5PlayerRef.currentTime = seconds;
+      }
+    }
     set({ currentTime: seconds }); 
   },
 
@@ -380,7 +510,13 @@ const usePlayerStore = create((set, get) => ({
   _seekCurrentEngineToZero: () => {
     const { activeEngine, playerRef, html5PlayerRef } = get();
     if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) playerRef.seekTo(0);
-    if (activeEngine === 'html5' && html5PlayerRef) html5PlayerRef.currentTime = 0;
+    if (activeEngine === 'html5') {
+      if (window.Capacitor && AudioPlayer) {
+        AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: 0 });
+      } else if (html5PlayerRef) {
+        html5PlayerRef.currentTime = 0;
+      }
+    }
   },
 
   playNext: async () => {
@@ -403,7 +539,13 @@ const usePlayerStore = create((set, get) => ({
       _seekCurrentEngineToZero(); 
       const { activeEngine, playerRef, html5PlayerRef } = get();
       if (activeEngine === 'youtube' && playerRef) playerRef.playVideo();
-      if (activeEngine === 'html5' && html5PlayerRef) html5PlayerRef.play();
+      if (activeEngine === 'html5') {
+        if (window.Capacitor && AudioPlayer) {
+          AudioPlayer.play({ audioId: 'novision-track' });
+        } else if (html5PlayerRef) {
+          html5PlayerRef.play();
+        }
+      }
       return; 
     }
     
@@ -412,7 +554,13 @@ const usePlayerStore = create((set, get) => ({
         _seekCurrentEngineToZero();
         const { activeEngine, playerRef, html5PlayerRef } = get();
         if (activeEngine === 'youtube' && playerRef) playerRef.pauseVideo();
-        if (activeEngine === 'html5' && html5PlayerRef) html5PlayerRef.pause();
+        if (activeEngine === 'html5') {
+          if (window.Capacitor && AudioPlayer) {
+            AudioPlayer.pause({ audioId: 'novision-track' });
+          } else if (html5PlayerRef) {
+            html5PlayerRef.pause();
+          }
+        }
         return;
       }
 
@@ -430,7 +578,13 @@ const usePlayerStore = create((set, get) => ({
           _seekCurrentEngineToZero();
           const { activeEngine, playerRef, html5PlayerRef } = get();
           if (activeEngine === 'youtube' && playerRef) playerRef.pauseVideo();
-          if (activeEngine === 'html5' && html5PlayerRef) html5PlayerRef.pause();
+          if (activeEngine === 'html5') {
+            if (window.Capacitor && AudioPlayer) {
+              AudioPlayer.pause({ audioId: 'novision-track' });
+            } else if (html5PlayerRef) {
+              html5PlayerRef.pause();
+            }
+          }
         }
       } catch(e) {}
       return;

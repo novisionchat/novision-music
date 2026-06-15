@@ -10,6 +10,9 @@ import PlaylistDetail from './pages/PlaylistDetail';
 import AuthModal from './components/AuthModal';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 
+// NATIVE BİLDİRİM İZNİ İÇİN RESMİ EKLENTİYİ İTHAL EDİYORUZ
+import { LocalNotifications } from '@capacitor/local-notifications';
+
 function App() {
   const { initAuth, loading } = useAuthStore();
   const { initOfflineStorage, setOfflineMode } = usePlayerStore();
@@ -18,19 +21,29 @@ function App() {
     initAuth(); 
     initOfflineStorage();
 
-    // İNTERNET GİDİP GELMESİNİ ANLIK DİNLE VE YOUTUBE'U KURTAR
+    // DÜZELTME: Android 13+ için gerçek native bildirim izin istemini tetikliyoruz.
+    // Bu izin verildiğinde kilit ekranında bildirim kartı görünecek ve ekran kilitlendiğinde müzik durmayacaktır.
+    if (window.Capacitor) {
+      LocalNotifications.requestPermissions().then((res) => {
+        console.log("Native bildirim izni sonucu:", res);
+      }).catch(e => console.error("Native bildirim izni istenirken hata:", e));
+    }
+
     const handleOnline = () => {
       setOfflineMode(false);
-      // İnternet geri geldiğinde YouTube API yüklenmemişse zorla yükle
-      if (!window.YT) {
-        const tag = document.createElement('script');
-        tag.src = "https://www.youtube.com/iframe_api";
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        if (firstScriptTag) {
-          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        } else {
-          document.head.appendChild(tag);
-        }
+      
+      const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]');
+      if (existingScript) {
+        existingScript.remove();
+      }
+
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      if (firstScriptTag) {
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      } else {
+        document.head.appendChild(tag);
       }
     };
     

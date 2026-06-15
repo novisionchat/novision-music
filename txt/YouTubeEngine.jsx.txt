@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import YouTube from 'react-youtube';
 import usePlayerStore from '../store/usePlayerStore';
 
@@ -11,6 +11,26 @@ const YouTubeEngine = () => {
   
   const progressInterval = useRef(null);
   const audioRef = useRef(null);
+  
+  // YouTube Iframe API'sinin tamamen hazır olup olmadığını denetleyen durum
+  const [ytReady, setYtReady] = useState(!!(window.YT && window.YT.Player));
+
+  useEffect(() => {
+    if (window.YT && window.YT.Player) {
+      setYtReady(true);
+      return;
+    }
+
+    // İnternet geri geldiğinde API yüklenmesini her 500ms'de bir kontrol et
+    const checkInterval = setInterval(() => {
+      if (window.YT && window.YT.Player) {
+        setYtReady(true);
+        clearInterval(checkInterval);
+      }
+    }, 500);
+
+    return () => clearInterval(checkInterval);
+  }, []);
 
   const opts = useMemo(() => ({
     height: '100%', width: '100%', 
@@ -21,13 +41,12 @@ const YouTubeEngine = () => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
-  // ÇÖKMEYEN, NATIVE ARKA PLAN BİLDİRİMİ (Sadece Web Standartları)
+  // Arka Plan/iOS PWA için Medya Bildirim Desteği
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
       const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
 
-      // Android sistemi bu API'yi gördüğü an kilit ekranına otomatik müzik çalar koyar ve WebView'ı dondurmaz!
       navigator.mediaSession.metadata = new MediaMetadata({ 
         title: currentSong.title, 
         artist: currentSong.channel, 
@@ -87,7 +106,7 @@ const YouTubeEngine = () => {
       zIndex: (isVideoMode && activeEngine === 'youtube') ? 5 : -1,
       borderRadius: '8px', overflow: 'hidden'
     }}>
-      {currentSong && (
+      {currentSong && ytReady && (
         <YouTube 
           key={`yt-engine-${currentSong.id}-${isOfflineMode ? 'off' : 'on'}`} 
           videoId={currentSong.id} 

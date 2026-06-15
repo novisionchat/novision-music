@@ -1,42 +1,49 @@
 import React, { useEffect, useState } from 'react';
 import { MdClose, MdQueueMusic } from 'react-icons/md';
 import { db } from '../firebase';
-import { ref, get, set, push } from 'firebase/database';
+import { ref, get } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
 
 const AddToPlaylistModal = () => {
   const { user } = useAuthStore();
-  const { isAddModalOpen, closeAddModal, songToAdd, localPlaylists, saveLocalPlaylists, updateLocalPlaylistSongs } = usePlayerStore();
+  const { 
+    isAddModalOpen, closeAddModal, songToAdd, localPlaylists, 
+    saveLocalPlaylists, updateLocalPlaylistSongs, isOfflineMode 
+  } = usePlayerStore();
   
   const [playlists, setPlaylists] = useState([]);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isLocalCreate, setIsLocalCreate] = useState(!navigator.onLine);
+  const [isLocalCreate, setIsLocalCreate] = useState(isOfflineMode);
 
   useEffect(() => {
-    setIsLocalCreate(!navigator.onLine);
+    setIsLocalCreate(isOfflineMode);
     if (!isAddModalOpen) return;
     
-    // Çevrimdışıysan bulutu çekmeye çalışma, sadece yerellerle devam et
-    if (!user || !navigator.onLine) {
+    // Çevrimdışı isek Firebase sorgusuna girmeden doğrudan yerel listelerle devam et
+    if (!user || isOfflineMode) {
       setPlaylists([]);
       return;
     }
 
     const fetchPlaylists = async () => {
       setLoading(true);
-      const snap = await get(ref(db, `users/${user.uid}/playlists`));
-      if (snap.exists()) {
-        const data = snap.val();
-        setPlaylists(Object.keys(data).map(key => ({ id: key, ...data[key] })));
-      } else {
-        setPlaylists([]);
+      try {
+        const snap = await get(ref(db, `users/${user.uid}/playlists`));
+        if (snap.exists()) {
+          const data = snap.val();
+          setPlaylists(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+        } else {
+          setPlaylists([]);
+        }
+      } catch (err) {
+        console.error("Bulut çalma listeleri çekilemedi:", err);
       }
       setLoading(false);
     };
     fetchPlaylists();
-  }, [user, isAddModalOpen]);
+  }, [user, isAddModalOpen, isOfflineMode]);
 
   if (!isAddModalOpen || !songToAdd) return null;
 
@@ -57,7 +64,7 @@ const AddToPlaylistModal = () => {
       return;
     }
 
-    if (navigator.onLine) {
+    if (!isOfflineMode) {
       await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
       alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
       closeAddModal();
@@ -71,7 +78,7 @@ const AddToPlaylistModal = () => {
     if (!newPlaylistName.trim()) return;
     const newSongData = { ...songToAdd, uniqueId: `${songToAdd.id}-${Date.now()}` };
 
-    if (!user || isLocalCreate || !navigator.onLine) {
+    if (!user || isLocalCreate || isOfflineMode) {
       const pl = { id: `local_${Date.now()}`, name: newPlaylistName.trim(), songs: [newSongData] };
       saveLocalPlaylists([...localPlaylists, pl]);
       alert("Yerel liste oluşturuldu ve şarkı eklendi!");
@@ -120,15 +127,14 @@ const AddToPlaylistModal = () => {
         )}
 
         <form onSubmit={handleQuickCreate} style={{ borderTop: '1px solid var(--border)', paddingTop: '15px', marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Her zaman görünür, sadece çevrimdışıysa zorunlu işaretli ve kilitli olur */}
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
             <input 
               type="checkbox" 
-              checked={isLocalCreate || !navigator.onLine} 
-              disabled={!navigator.onLine}
+              checked={isLocalCreate || isOfflineMode} 
+              disabled={isOfflineMode}
               onChange={(e) => setIsLocalCreate(e.target.checked)} 
             />
-            Yerel (Çevrimdışı) Liste Oluştur {!navigator.onLine && "(Zorunlu)"}
+            Yerel (Çevrimdışı) Liste Oluştur {isOfflineMode && "(Zorunlu)"}
           </label>
           <div style={{ display: 'flex', gap: '10px' }}>
             <input type="text" className="form-input" placeholder="Yeni çalma listesi adı..." value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} style={{ margin: 0, padding: '10px', flex: 1 }} />

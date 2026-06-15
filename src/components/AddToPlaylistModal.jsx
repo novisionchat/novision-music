@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { MdClose, MdQueueMusic } from 'react-icons/md';
 import { db } from '../firebase';
-import { ref, get } from 'firebase/database';
+import { ref, get, set, push } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
 
@@ -21,7 +21,6 @@ const AddToPlaylistModal = () => {
     setIsLocalCreate(isOfflineMode);
     if (!isAddModalOpen) return;
     
-    // Çevrimdışı isek Firebase sorgusuna girmeden doğrudan yerel listelerle devam et
     if (!user || isOfflineMode) {
       setPlaylists([]);
       return;
@@ -48,28 +47,49 @@ const AddToPlaylistModal = () => {
   if (!isAddModalOpen || !songToAdd) return null;
 
   const handleAddToPlaylist = async (playlist) => {
-    const currentSongs = playlist.songs || [];
-    if (currentSongs.find(s => s.id === songToAdd.id)) {
-      alert("Bu şarkı zaten listede var.");
-      return;
-    }
+    try {
+      if (!user && !playlist.id.startsWith('local_')) {
+        alert("Bulut listesine eklemek için giriş yapmalısınız.");
+        return;
+      }
 
-    const newSongData = { ...songToAdd, uniqueId: `${songToAdd.id}-${Date.now()}` };
-    const updatedSongs = [...currentSongs, newSongData];
-    
-    if (playlist.id.startsWith('local_')) {
-      updateLocalPlaylistSongs(playlist.id, updatedSongs);
-      alert(`"${songToAdd.title}" başarıyla yerel listeye eklendi!`);
-      closeAddModal();
-      return;
-    }
+      // DÜZELTME: Firebase Realtime DB Dizi/Obje Karışıklığı Çözümü
+      let currentSongs = [];
+      if (playlist.songs) {
+        if (Array.isArray(playlist.songs)) {
+          currentSongs = playlist.songs;
+        } else if (typeof playlist.songs === 'object') {
+          // Eğer Firebase veriyi Obje olarak gönderdiyse, değerlerini diziye çeviriyoruz
+          currentSongs = Object.values(playlist.songs).filter(Boolean);
+        }
+      }
 
-    if (!isOfflineMode) {
-      await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
-      alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
-      closeAddModal();
-    } else {
-      alert("Bulut listesine eklemek için internet bağlantısı gerekiyor.");
+      if (currentSongs.find(s => s.id === songToAdd.id)) {
+        alert("Bu şarkı zaten listede var.");
+        return;
+      }
+
+      const newSongData = { ...songToAdd, uniqueId: `${songToAdd.id}-${Date.now()}` };
+      const updatedSongs = [...currentSongs, newSongData];
+      
+      if (playlist.id.startsWith('local_')) {
+        updateLocalPlaylistSongs(playlist.id, updatedSongs);
+        alert(`"${songToAdd.title}" başarıyla yerel listeye eklendi!`);
+        closeAddModal();
+        return;
+      }
+
+      if (!isOfflineMode) {
+        // DÜZELTME: Try-catch ile sarmallayarak olası Firebase kuralları (Permission) hatalarını yakalıyoruz
+        await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/songs`), updatedSongs);
+        alert(`"${songToAdd.title}" başarıyla bulut listeye eklendi!`);
+        closeAddModal();
+      } else {
+        alert("Bulut listesine eklemek için internet bağlantısı gerekiyor.");
+      }
+    } catch (error) {
+      console.error("Çalma listesine ekleme sırasında hata oluştu:", error);
+      alert("Şarkı listeye eklenemedi. Hata: " + error.message);
     }
   };
 
@@ -78,18 +98,23 @@ const AddToPlaylistModal = () => {
     if (!newPlaylistName.trim()) return;
     const newSongData = { ...songToAdd, uniqueId: `${songToAdd.id}-${Date.now()}` };
 
-    if (!user || isLocalCreate || isOfflineMode) {
-      const pl = { id: `local_${Date.now()}`, name: newPlaylistName.trim(), songs: [newSongData] };
-      saveLocalPlaylists([...localPlaylists, pl]);
-      alert("Yerel liste oluşturuldu ve şarkı eklendi!");
-    } else {
-      const newRef = push(ref(db, `users/${user.uid}/playlists`));
-      await set(newRef, { id: newRef.key, name: newPlaylistName.trim(), songs: [newSongData] });
-      alert("Bulut listesi oluşturuldu ve şarkı eklendi!");
-    }
+    try {
+      if (!user || isLocalCreate || isOfflineMode) {
+        const pl = { id: `local_${Date.now()}`, name: newPlaylistName.trim(), songs: [newSongData] };
+        saveLocalPlaylists([...localPlaylists, pl]);
+        alert("Yerel liste oluşturuldu ve şarkı eklendi!");
+      } else {
+        const newRef = push(ref(db, `users/${user.uid}/playlists`));
+        await set(newRef, { id: newRef.key, name: newPlaylistName.trim(), songs: [newSongData] });
+        alert("Bulut listesi oluşturuldu ve şarkı eklendi!");
+      }
 
-    setNewPlaylistName("");
-    closeAddModal();
+      setNewPlaylistName("");
+      closeAddModal();
+    } catch (error) {
+      console.error("Yeni liste oluşturulurken hata:", error);
+      alert("Yeni liste oluşturulamadı. Hata: " + error.message);
+    }
   };
 
   return (
@@ -119,7 +144,7 @@ const AddToPlaylistModal = () => {
               <div key={pl.id} className="playlist-select-item" onClick={() => handleAddToPlaylist(pl)}>
                 <MdQueueMusic size={24} color="var(--text-main)" />
                 <span style={{ flex: 1, fontWeight: '500', color: 'white', textAlign: 'left' }}>{pl.name}</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? pl.songs.length : 0} şarkı</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? (Array.isArray(pl.songs) ? pl.songs.length : Object.keys(pl.songs).length) : 0} şarkı</span>
               </div>
             ))}
             {playlists.length === 0 && localPlaylists.length === 0 && <p style={{ color: 'gray', fontSize: '13px' }}>Henüz listeniz yok.</p>}
