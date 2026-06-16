@@ -400,3 +400,25 @@ iframe.youtube-video-fill {
 .playlist-search-box:focus-within { border-color: rgba(255,255,255,0.2); background-color: rgba(255,255,255,0.08); }
 .playlist-search-box input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 14px; }
 .playlist-search-box input::placeholder { color: var(--text-muted); }
+
+/* Yan panelin ve içerisindeki elemanların yumuşakça kayarak açılıp daralması */
+.sidebar-desktop {
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s !important;
+}
+
+/* Yan panel çalma listesi elemanlarının hover efekti */
+.sidebar-playlist-item {
+  transition: background-color 0.2s ease;
+}
+.sidebar-playlist-item:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+/* Scrollbar özelleştirmesi yan panel dropdown için */
+.sidebar-playlists-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-playlists-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}

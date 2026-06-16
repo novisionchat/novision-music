@@ -11,7 +11,7 @@ const parseISO8601Duration = (durationString) => {
     return hours * 3600 + minutes * 60 + seconds;
 };
 
-// 1. Trend Listelerini Çekme (12 Saat Önbellekli)
+// 1. Trend Listelerini Çekme
 export const getTrendings = async (regionCode = 'TR') => {
     const cacheKey = `yt_trend_${regionCode}`;
     const cached = JSON.parse(localStorage.getItem(cacheKey));
@@ -36,13 +36,12 @@ export const getTrendings = async (regionCode = 'TR') => {
     return songs;
 };
 
-// 2. Sanatçı Profilini Bulma (YENİ: 12 Saat Önbellekli!)
+// 2. Sanatçı Profilini Bulma (DOĞRU VE KUSURSUZ PROFİL UYUMU)
 export const getArtistProfile = async (query) => {
     const queryClean = query.toLowerCase().trim();
     const cacheKey = `artist_prof_${queryClean}`;
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     
-    // Eğer 12 saat içinde bu sanatçı aranmışsa doğrudan hafızadan çek (0 Kota!)
     if (cached && Date.now() - cached.timestamp < CACHE_TIME) {
         return cached.data;
     }
@@ -56,14 +55,13 @@ export const getArtistProfile = async (query) => {
     
     if (!channelIds) {
         const first = searchData.items[0];
-        const backupResult = {
+        return {
             id: first.id?.channelId || '',
             songsChannelId: first.id?.channelId || '',
             name: first.snippet.title,
             thumbnail: first.snippet.thumbnails.high?.url || first.snippet.thumbnails.default?.url,
             subscriberCount: 0
         };
-        return backupResult;
     }
 
     try {
@@ -83,41 +81,40 @@ export const getArtistProfile = async (query) => {
                 c.snippet.title.toLowerCase().includes('vevo')
             );
 
-            const songsChannelId = topicChannel ? topicChannel.id : officialChannel.id;
+            // DÜZELTME: Şarkıları çektiğimiz kanalı (Topic/Vevo) profil adı ve fotoğrafı olarak baz alıyoruz.
+            // Böylece şarkılar ve isim/avatar asla birbiriyle çelişmeyecek!
+            const targetChannel = topicChannel || officialChannel;
 
             const finalResult = {
-                id: officialChannel.id,
-                songsChannelId: songsChannelId,
-                name: officialChannel.snippet.title,
-                thumbnail: officialChannel.snippet.thumbnails.high?.url || officialChannel.snippet.thumbnails.medium?.url || officialChannel.snippet.thumbnails.default?.url,
+                id: officialChannel.id, // Abone sayısı ve resmi istatistikler asıl kanaldan
+                songsChannelId: targetChannel.id, // Şarkılar Topic/Vevo'dan
+                name: targetChannel.snippet.title, // İsim Topic/Vevo'dan (Sadeleştirilecek)
+                thumbnail: targetChannel.snippet.thumbnails.high?.url || targetChannel.snippet.thumbnails.medium?.url || targetChannel.snippet.thumbnails.default?.url,
                 subscriberCount: officialChannel.statistics?.subscriberCount || 0
             };
 
-            // Sonucu önbelleğe kaydet
             localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: finalResult }));
             return finalResult;
         }
     } catch (e) {
-        console.warn("Resmi kanallar toplu listelenemedi.", e);
+        console.warn("Resmi kanallar listelenemedi.", e);
     }
     
     const firstChannel = searchData.items[0];
-    const failResult = {
+    return {
         id: firstChannel.id.channelId,
         songsChannelId: firstChannel.id.channelId,
         name: firstChannel.snippet.title,
         thumbnail: firstChannel.snippet.thumbnails.high?.url || firstChannel.snippet.thumbnails.default?.url,
         subscriberCount: 0
     };
-    return failResult;
 };
 
-// 3. Sanatçının Popüler Şarkılarını Bulma (YENİ: 12 Saat Önbellekli!)
+// 3. Sanatçının Popüler Şarkılarını Bulma
 export const getArtistTopTracks = async (channelId) => {
     const cacheKey = `artist_tracks_${channelId}`;
     const cached = JSON.parse(localStorage.getItem(cacheKey));
     
-    // Eğer şarkılar hafızada varsa doğrudan oradan oku (0 Kota!)
     if (cached && Date.now() - cached.timestamp < CACHE_TIME) {
         return cached.data;
     }
@@ -168,7 +165,6 @@ export const getArtistTopTracks = async (channelId) => {
             (song.categoryId === "10" ? song.duration >= 60 : song.duration >= 120)
         );
 
-    // Şarkıları önbelleğe kaydet
     localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: tracks }));
     return tracks;
 };

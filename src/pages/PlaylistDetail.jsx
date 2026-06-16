@@ -18,14 +18,15 @@ const PlaylistDetail = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   
-  // ZUSTAND OPTİMİZASYONU: Uygulama çökmesini engellemek için parçalı çekim yapıldı.
   const user = useAuthStore(s => s.user);
   const playSong = usePlayerStore(s => s.playSong);
+  const currentSong = usePlayerStore(s => s.currentSong); // YENİ: Çalan şarkıyı yakala
   const isShuffle = usePlayerStore(s => s.isShuffle);
   const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
   const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
   const downloadQueue = usePlayerStore(s => s.downloadQueue);
   const addToDownloadQueueList = usePlayerStore(s => s.addToDownloadQueueList);
+  const downloadQueueList = usePlayerStore(s => s.downloadQueueList);
   const localPlaylists = usePlayerStore(s => s.localPlaylists);
   const updateLocalPlaylistSongs = usePlayerStore(s => s.updateLocalPlaylistSongs);
   const updateLocalPlaylistName = usePlayerStore(s => s.updateLocalPlaylistName);
@@ -41,8 +42,6 @@ const PlaylistDetail = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
-  
-  // YENİ: KİTAPLIĞA EKLENDİ Mİ KONTROLÜ
   const [isAddedToLibrary, setIsAddedToLibrary] = useState(false);
 
   const ownerId = searchParams.get('owner') || (user ? user.uid : null);
@@ -87,7 +86,6 @@ const PlaylistDetail = () => {
       });
     }
 
-    // YENİ: Başkasının listesiyse, daha önce kitaplığa eklenip eklenmediğini kontrol et
     if (user && isExternal && navigator.onLine) {
       get(ref(db, `users/${user.uid}/playlists`)).then(snap => {
         if (snap.exists()) {
@@ -110,7 +108,7 @@ const PlaylistDetail = () => {
       songs: songs,
       readonly: true,
       originalOwner: ownerId,
-      originalId: id // Bu liste kime ait onu kaydediyoruz
+      originalId: id
     });
     setIsAddedToLibrary(true);
     toast.success("Kitaplığa eklendi!");
@@ -176,8 +174,6 @@ const PlaylistDetail = () => {
 
   return (
     <div className="playlist-detail-page" onClick={() => setIsSortOpen(false)}>
-      
-      {/* DÜZELTME: Geri tuşu artık navigate(-1) kullanarak geldiğin sayfaya döndürür */}
       <div className="back-btn-container" onClick={() => navigate(-1)}><MdArrowBack size={28} /></div>
 
       <div className="playlist-header-large" style={{ display: 'flex', alignItems: 'center', gap: '25px' }}>
@@ -278,6 +274,10 @@ const PlaylistDetail = () => {
         </div>
       )}
 
+      {downloadQueueList.length > 0 && (
+        <p style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: 'bold', marginBottom: '15px' }}>Sırada bekleyen {downloadQueueList.length} indirme var...</p>
+      )}
+
       <div className="playlist-songs">
         {safeSongs.length === 0 ? (
           <p style={{ color: 'gray', marginTop: '20px' }}>Bu liste boş.</p>
@@ -289,12 +289,18 @@ const PlaylistDetail = () => {
                   {displaySongs.map((song, displayIndex) => {
                     const trueIndex = safeSongs.findIndex(s => s.uniqueId === song.uniqueId);
                     const isSongDownloaded = !!downloadedSongs[song.id];
+                    const isSongDownloading = downloadQueue.includes(song.id);
+                    const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
+
                     const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
+                    
+                    // DÜZELTME: Şu an oynayan şarkı ise vurgu rengi ekle!
+                    const isCurrentPlaying = currentSong?.id === song.id;
 
                     return (
                       <Draggable key={song.uniqueId} draggableId={song.uniqueId} index={trueIndex !== -1 ? trueIndex : displayIndex} isDragDisabled={!isEditMode || isDownloadMode}>
                         {(provided, snapshot) => (
-                          <div className={`song-row dnd-row ${snapshot.isDragging ? 'dragging' : ''} ${isEditMode ? 'edit-mode' : ''}`} ref={provided.innerRef} {...provided.draggableProps}>
+                          <div className={`song-row dnd-row ${snapshot.isDragging ? 'dragging' : ''} ${isEditMode ? 'edit-mode' : ''} ${isCurrentPlaying ? 'active' : ''}`} ref={provided.innerRef} {...provided.draggableProps}>
                             {isEditMode && canEdit && <div className="drag-handle" {...provided.dragHandleProps}><MdDragIndicator size={24} color="gray" /></div>}
                             
                             {isDownloadMode && <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />}
@@ -306,8 +312,10 @@ const PlaylistDetail = () => {
 
                             <div className="song-info" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
                               <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span>{song.title}</span>
+                                <span style={{ color: isCurrentPlaying ? 'var(--accent)' : 'white' }}>{song.title}</span>
                                 {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>}
+                                {isSongDownloading && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px' }}>İniyor...</span>}
+                                {isSongInWaitQueue && <span style={{ fontSize: '10px', color: 'gray' }}>Sırada</span>}
                               </div>
                               <div className="song-channel">{song.channel}</div>
                             </div>

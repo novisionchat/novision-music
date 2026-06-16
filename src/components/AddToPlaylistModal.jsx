@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MdClose, MdQueueMusic } from 'react-icons/md';
+import { MdClose, MdQueueMusic, MdCheckCircle } from 'react-icons/md';
 import { db } from '../firebase';
 import { ref, get, set, push } from 'firebase/database';
 import useAuthStore from '../store/useAuthStore';
@@ -47,6 +47,37 @@ const AddToPlaylistModal = () => {
 
   if (!isAddModalOpen || !songToAdd) return null;
 
+  // DÜZELTME: Salt okunur (readonly) olan listeleri tamamen gizle!
+  const editableLocalPlaylists = localPlaylists.filter(pl => !pl.readonly);
+  const editableCloudPlaylists = playlists.filter(pl => !pl.readonly);
+
+  // DÜZELTME: En son eklenen çalma listesini listenin en tepesine uçur
+  const lastAddedId = localStorage.getItem('last_added_playlist_id');
+
+  const sortPlaylists = (list) => {
+    return [...list].sort((a, b) => {
+      if (a.id === lastAddedId) return -1;
+      if (b.id === lastAddedId) return 1;
+      return 0;
+    });
+  };
+
+  const finalLocalList = sortPlaylists(editableLocalPlaylists);
+  const finalCloudList = sortPlaylists(editableCloudPlaylists);
+
+  // DÜZELTME: Şarkının bu listede olup olmadığını kontrol etme fonksiyonu
+  const hasSong = (playlist) => {
+    let currentSongs = [];
+    if (playlist.songs) {
+      if (Array.isArray(playlist.songs)) {
+        currentSongs = playlist.songs;
+      } else if (typeof playlist.songs === 'object') {
+        currentSongs = Object.values(playlist.songs).filter(Boolean);
+      }
+    }
+    return currentSongs.some(s => s.id === songToAdd.id);
+  };
+
   const handleAddToPlaylist = async (playlist) => {
     try {
       if (!user && !playlist.id.startsWith('local_')) {
@@ -71,6 +102,9 @@ const AddToPlaylistModal = () => {
       const newSongData = { ...songToAdd, uniqueId: `${songToAdd.id}-${Date.now()}` };
       const updatedSongs = [...currentSongs, newSongData];
       
+      // Son ekleme yapılan playlist ID'sini hafızada sakla
+      localStorage.setItem('last_added_playlist_id', playlist.id);
+
       if (playlist.id.startsWith('local_')) {
         updateLocalPlaylistSongs(playlist.id, updatedSongs);
         toast.success(`"${songToAdd.title}" yerel listeye eklendi!`);
@@ -131,21 +165,36 @@ const AddToPlaylistModal = () => {
           <p style={{ color: 'gray', padding: '20px 0' }}>Yükleniyor...</p>
         ) : (
           <div className="playlist-selection-list">
-            {localPlaylists.map(pl => (
-              <div key={pl.id} className="playlist-select-item" onClick={() => handleAddToPlaylist(pl)}>
-                <MdQueueMusic size={24} color="var(--accent)" />
-                <span style={{ flex: 1, fontWeight: '500', color: 'white', textAlign: 'left' }}>{pl.name} <span style={{fontSize:'10px'}}>(Yerel)</span></span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? pl.songs.length : 0} şarkı</span>
-              </div>
-            ))}
-            {playlists.map(pl => (
-              <div key={pl.id} className="playlist-select-item" onClick={() => handleAddToPlaylist(pl)}>
-                <MdQueueMusic size={24} color="var(--text-main)" />
-                <span style={{ flex: 1, fontWeight: '500', color: 'white', textAlign: 'left' }}>{pl.name}</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? (Array.isArray(pl.songs) ? pl.songs.length : Object.keys(pl.songs).length) : 0} şarkı</span>
-              </div>
-            ))}
-            {playlists.length === 0 && localPlaylists.length === 0 && <p style={{ color: 'gray', fontSize: '13px' }}>Henüz listeniz yok.</p>}
+            {finalLocalList.map(pl => {
+              const songExists = hasSong(pl);
+              return (
+                <div key={pl.id} className="playlist-select-item" onClick={() => !songExists && handleAddToPlaylist(pl)} style={{ opacity: songExists ? 0.6 : 1, cursor: songExists ? 'default' : 'pointer' }}>
+                  <MdQueueMusic size={24} color="var(--accent)" />
+                  <span style={{ flex: 1, fontWeight: '500', color: 'white', textAlign: 'left' }}>{pl.name} <span style={{fontSize:'10px'}}>(Yerel)</span></span>
+                  {songExists ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--accent)', fontWeight: 'bold' }}><MdCheckCircle size={16} /> Zaten Ekli</span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? pl.songs.length : 0} şarkı</span>
+                  )}
+                </div>
+              );
+            })}
+            
+            {finalCloudList.map(pl => {
+              const songExists = hasSong(pl);
+              return (
+                <div key={pl.id} className="playlist-select-item" onClick={() => !songExists && handleAddToPlaylist(pl)} style={{ opacity: songExists ? 0.6 : 1, cursor: songExists ? 'default' : 'pointer' }}>
+                  <MdQueueMusic size={24} color="var(--text-main)" />
+                  <span style={{ flex: 1, fontWeight: '500', color: 'white', textAlign: 'left' }}>{pl.name}</span>
+                  {songExists ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--accent)', fontWeight: 'bold' }}><MdCheckCircle size={16} /> Zaten Ekli</span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{pl.songs ? (Array.isArray(pl.songs) ? pl.songs.length : Object.keys(pl.songs).length) : 0} şarkı</span>
+                  )}
+                </div>
+              );
+            })}
+            {finalCloudList.length === 0 && finalLocalList.length === 0 && <p style={{ color: 'gray', fontSize: '13px' }}>Henüz düzenlenebilir listeniz yok.</p>}
           </div>
         )}
 
