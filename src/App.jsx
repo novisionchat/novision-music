@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import useAuthStore from './store/useAuthStore';
 import usePlayerStore from './store/usePlayerStore';
@@ -15,8 +15,11 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { db } from './firebase'; 
 import { ref, onValue } from 'firebase/database'; 
 
-function App() {
-  // ZUSTAND OPTİMİZASYONU: Uygulamanın gereksiz yere baştan çizilmesini (re-render) önler
+// İÇ İÇE GEÇMİŞ YÖNLENDİRME YAPISI İÇİN ALT BİLEŞEN
+function AppContent() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const initAuth = useAuthStore(s => s.initAuth);
   const loading = useAuthStore(s => s.loading);
   const user = useAuthStore(s => s.user);
@@ -25,12 +28,19 @@ function App() {
   const setOfflineMode = usePlayerStore(s => s.setOfflineMode);
   const setLikedSongs = usePlayerStore(s => s.setLikedSongs);
 
-  // 1. SADECE UYGULAMA AÇILDIĞINDA 1 KEZ ÇALIŞACAK KODLAR (Döngüye Girmemesi İçin)
+  // Geri tuşu kontrolü için store değişkenleri
+  const isPanelOpen = usePlayerStore(s => s.isPanelOpen);
+  const closePanel = usePlayerStore(s => s.closePanel);
+  const isAddModalOpen = usePlayerStore(s => s.isAddModalOpen);
+  const closeAddModal = usePlayerStore(s => s.closeAddModal);
+  const isAuthModalOpen = useAuthStore(s => s.isAuthModalOpen);
+  const setAuthModalOpen = useAuthStore(s => s.setAuthModalOpen);
+
+  // 1. SADECE UYGULAMA AÇILDIĞINDA 1 KEZ ÇALIŞACAK KODLAR
   useEffect(() => { 
     initAuth(); 
     initOfflineStorage();
 
-    // Sadece mobildeyken (Capacitor varsa) bildirim izni iste
     if (window.Capacitor) {
       LocalNotifications.requestPermissions().then((res) => {
         console.log("Native bildirim izni sonucu:", res);
@@ -57,21 +67,53 @@ function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []); // <-- BOŞ DİZİ! Bu sayede bu blok sadece 1 kere çalışır ve cihaz hafızasını bir daha taramaz.
+  }, []);
 
-  // 2. KULLANICI DURUMU DEĞİŞTİĞİNDE ÇALIŞACAK KODLAR (Beğenilen Şarkılar)
+  // 2. FİZİKSEL GERİ TUŞU KONTROLÜ (SPOTIFY STİLİ AKILLI UX)
+  useEffect(() => {
+    if (!window.Capacitor) return;
+
+    let activeHandler;
+    
+    const initBackButton = async () => {
+      const { App: CapApp } = await import('@capacitor/app');
+      
+      activeHandler = await CapApp.addListener('backButton', () => {
+        if (isPanelOpen) {
+          closePanel(); // Müzik çalar açıksa önce paneli kapat
+        } else if (isAddModalOpen) {
+          closeAddModal(); // Liste ekleme modalı açıksa kapat
+        } else if (isAuthModalOpen) {
+          setAuthModalOpen(false); // Giriş ekranı açıksa kapat
+        } else if (location.pathname === '/') {
+          CapApp.exitApp(); // Ana sayfadaysak uygulamadan çık
+        } else {
+          navigate(-1); // Diğer durumlarda bir önceki sayfaya dön
+        }
+      });
+    };
+
+    initBackButton();
+
+    return () => {
+      if (activeHandler) {
+        activeHandler.remove();
+      }
+    };
+  }, [location.pathname, navigate, isPanelOpen, closePanel, isAddModalOpen, closeAddModal, isAuthModalOpen, setAuthModalOpen]);
+
+  // 3. KULLANICI DURUMU DEĞİŞTİĞİNDE ÇALIŞACAK KODLAR
   useEffect(() => {
     if (user) {
       const unsub = onValue(ref(db, `users/${user.uid}/likedSongs`), (snap) => {
         setLikedSongs(snap.exists() ? snap.val() : []);
       });
-      return () => unsub(); // Component kapandığında dinlemeyi bırak
+      return () => unsub();
     } else {
       setLikedSongs([]);
     }
-  }, [user, setLikedSongs]); // <-- Sadece "user" değiştiğinde çalışır
+  }, [user, setLikedSongs]);
 
-  // Yüklenme Ekranı
   if (loading) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', backgroundColor: '#000' }}>
@@ -81,7 +123,7 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
+    <>
       <Toaster 
         position="top-center"
         toastOptions={{
@@ -112,6 +154,15 @@ function App() {
           <Route path="/artist/:name" element={<ArtistDetail />} />
         </Route>
       </Routes>
+    </>
+  );
+}
+
+// ANA SARICI BİLEŞEN
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
     </BrowserRouter>
   );
 }
