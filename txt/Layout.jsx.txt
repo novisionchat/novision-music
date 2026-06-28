@@ -17,11 +17,14 @@ const Layout = () => {
 
   const [playlists, setPlaylists] = useState([]);
   
+  // Sol panel katlanma durumunu localStorage'dan oku
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
     localStorage.getItem('sidebar_collapsed') === 'true'
   );
+  // Kitaplık dropdown açık/kapalı durumu
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
 
+  // Bulut listelerini çek
   useEffect(() => {
     if (!user || !navigator.onLine) {
       setPlaylists([]);
@@ -45,6 +48,7 @@ const Layout = () => {
     localStorage.setItem('sidebar_collapsed', nextState);
   };
 
+  // Yan panelde listelenecek tüm çalma listelerini birleştir
   const sidebarPlaylists = [
     { id: 'liked', name: 'Beğenilen Şarkılar', songs: likedSongs, isStatic: true },
     ...localPlaylists,
@@ -53,15 +57,18 @@ const Layout = () => {
 
   return (
     <div className="layout-container">
+      {/* SOL MENÜ (PC & TABLET) */}
       <aside 
         className="sidebar-desktop" 
         style={{ 
           width: isSidebarCollapsed ? '80px' : '260px', 
+          transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s',
           padding: isSidebarCollapsed ? '20px 10px' : '20px 15px'
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <div>
+            {/* DÜZELTME: Logo Alanı & Üst Kısımdaki Üç Çizgi Aç/Kapa Butonu */}
             <div 
               className="logo-area" 
               style={{ 
@@ -76,7 +83,12 @@ const Layout = () => {
                 <button 
                   className="icon-btn" 
                   onClick={toggleSidebar} 
-                  style={{ padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ 
+                    padding: '5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
                 >
                   <MdMenu size={26} color="white" />
                 </button>
@@ -89,7 +101,12 @@ const Layout = () => {
                   <button 
                     className="icon-btn" 
                     onClick={toggleSidebar} 
-                    style={{ padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ 
+                      padding: '5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
                   >
                     <MdMenu size={26} color="white" />
                   </button>
@@ -97,6 +114,7 @@ const Layout = () => {
               )}
             </div>
             
+            {/* Menü Navigasyon Linkleri */}
             <nav className="main-nav" style={{ marginTop: '30px' }}>
               <NavLink to="/" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'} style={{ justifyContent: isSidebarCollapsed ? 'center' : 'flex-start' }}>
                 <MdHomeFilled size={24} /> 
@@ -107,36 +125,74 @@ const Layout = () => {
                 {!isSidebarCollapsed && <span>Ara</span>}
               </NavLink>
               
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%', background: 'transparent' }}>
+              {/* DÜZELTME: Kitaplık Butonu ve Üçgen Dropdown Tetikleyici Ayrımı */}
+              <div 
+                style={{ 
+                  position: 'relative', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  width: '100%',
+                  background: 'transparent'
+                }}
+              >
+                {/* Ana Buton: Sadece yönlendirme yapar */}
                 <NavLink 
                   to="/library" 
                   className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'} 
                   style={{ 
                     justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
                     flexGrow: 1,
-                    width: '100%',
-                    paddingRight: !isSidebarCollapsed && sidebarPlaylists.length > 0 ? '40px' : undefined
+                    paddingRight: isSidebarCollapsed ? '0px' : '40px',
+                    width: '100%'
                   }}
                 >
                   <MdLibraryMusic size={24} />
                   {!isSidebarCollapsed && <span>Kitaplık</span>}
                 </NavLink>
 
+                {/* Sadece Üçgen (Expand) Butonu: Alt listeyi açar/kapatır */}
                 {(!isSidebarCollapsed && sidebarPlaylists.length > 0) && (
                   <button 
                     className="icon-btn" 
-                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, padding: '6px' }}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsLibraryOpen(!isLibraryOpen); }}
+                    style={{ 
+                      position: 'absolute', 
+                      right: '10px', 
+                      top: '50%', 
+                      transform: 'translateY(-50%)',
+                      zIndex: 10,
+                      padding: '6px'
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation(); // Yönlendirmeyi engeller
+                      setIsLibraryOpen(!isLibraryOpen);
+                    }}
                   >
-                    <MdExpandMore size={22} style={{ transform: isLibraryOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--text-muted)' }} />
+                    <MdExpandMore 
+                      size={22} 
+                      style={{ 
+                        transform: isLibraryOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
+                        transition: 'transform 0.2s',
+                        color: 'var(--text-muted)'
+                      }} 
+                    />
                   </button>
                 )}
               </div>
 
+              {/* Yan Panel Altındaki Yatay Çalma Listesi Görünümü */}
               {(!isSidebarCollapsed && isLibraryOpen) && (
                 <div 
                   className="sidebar-playlists-dropdown" 
-                  style={{ maxHeight: '40vh', overflowY: 'auto', marginTop: '10px', paddingLeft: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                  style={{ 
+                    maxHeight: '40vh', 
+                    overflowY: 'auto', 
+                    marginTop: '10px', 
+                    paddingLeft: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px'
+                  }}
                 >
                   {sidebarPlaylists.map(pl => {
                     let thumb = '/icon.png';
@@ -151,16 +207,22 @@ const Layout = () => {
                         key={pl.id} 
                         className="sidebar-playlist-item"
                         onClick={() => navigate(`/playlist/${pl.id}`)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          padding: '6px 8px', 
+                          borderRadius: '6px', 
+                          cursor: 'pointer',
+                          transition: 'background 0.2s'
+                        }}
                       >
                         {thumb === 'gradient' ? (
                           <div style={{ width: '32px', height: '32px', borderRadius: '4px', background: 'linear-gradient(135deg, #FF2A54, #8b0021)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
                             <MdHomeFilled size={16} color="white" />
                           </div>
                         ) : (
-                          <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden', flexShrink: 0 }}>
-                             <img src={thumb} alt={pl.name} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scale(1.35)' }} />
-                          </div>
+                          <img src={thumb} alt={pl.name} style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }} />
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                           <span style={{ fontSize: '12px', fontWeight: '600', color: 'white', textOverflow: 'ellipsis', overflow: 'hidden' }}>{pl.name}</span>
@@ -176,6 +238,7 @@ const Layout = () => {
         </div>
       </aside>
 
+      {/* ANA İÇERİK ALANI */}
       <main className="main-content">
         <header className="top-bar">
           <div style={{ flex: 1 }}></div>
@@ -183,15 +246,23 @@ const Layout = () => {
             <img src={profile?.avatar || '/icon.png'} alt="User" />
           </div>
         </header>
+
         <Outlet />
       </main>
 
       <NowPlayingPanel />
 
+      {/* MOBİL ALT MENÜ */}
       <nav className="mobile-bottom-nav">
-        <NavLink to="/" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdHomeFilled size={26} /><span>Ana Sayfa</span></NavLink>
-        <NavLink to="/search" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdSearch size={26} /><span>Ara</span></NavLink>
-        <NavLink to="/library" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdLibraryMusic size={26} /><span>Kitaplık</span></NavLink>
+        <NavLink to="/" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdHomeFilled size={26} /><span>Ana Sayfa</span>
+        </NavLink>
+        <NavLink to="/search" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdSearch size={26} /><span>Ara</span>
+        </NavLink>
+        <NavLink to="/library" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdLibraryMusic size={26} /><span>Kitaplık</span>
+        </NavLink>
       </nav>
 
       <PlayerBar />

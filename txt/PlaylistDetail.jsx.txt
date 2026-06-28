@@ -20,7 +20,7 @@ const PlaylistDetail = () => {
   
   const user = useAuthStore(s => s.user);
   const playSong = usePlayerStore(s => s.playSong);
-  const currentSong = usePlayerStore(s => s.currentSong); 
+  const currentSong = usePlayerStore(s => s.currentSong); // YENİ: Çalan şarkıyı yakala
   const isShuffle = usePlayerStore(s => s.isShuffle);
   const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
   const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
@@ -37,10 +37,7 @@ const PlaylistDetail = () => {
   const [isEditMode, setIsEditMode] = useState(location.state?.autoEdit || false);
   const [isNameEditing, setIsNameEditing] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
-  
-  // YENİLİK: Sıralama tercihi önbellekten okunuyor
-  const [sortOrder, setSortOrder] = useState(localStorage.getItem('novision_playlist_sort') || 'oldest');
-  
+  const [sortOrder, setSortOrder] = useState('oldest');
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDownloadMode, setIsDownloadMode] = useState(false);
@@ -99,13 +96,6 @@ const PlaylistDetail = () => {
       });
     }
   }, [id, user, ownerId, downloadedSongs, localPlaylists, likedSongs, isExternal]);
-
-  // YENİLİK: Sıralama değiştirildiğinde önbelleğe de kaydedilir
-  const handleSortChange = (val) => {
-    setSortOrder(val);
-    localStorage.setItem('novision_playlist_sort', val);
-    setIsSortOpen(false);
-  };
 
   const handleSaveToLibrary = async () => {
     if(!user) return toast.error("Giriş yapmalısınız!");
@@ -262,15 +252,14 @@ const PlaylistDetail = () => {
               </div>
               {isSortOpen && (
                 <div className="custom-dropdown-menu sort-menu">
-                  <div className={`dropdown-item ${sortOrder === 'oldest' ? 'active' : ''}`} onClick={() => handleSortChange('oldest')}>Eskiden Yeniye</div>
-                  <div className={`dropdown-item ${sortOrder === 'newest' ? 'active' : ''}`} onClick={() => handleSortChange('newest')}>Yeniden Eskiye</div>
+                  <div className={`dropdown-item ${sortOrder === 'oldest' ? 'active' : ''}`} onClick={() => setSortOrder('oldest')}>Eskiden Yeniye</div>
+                  <div className={`dropdown-item ${sortOrder === 'newest' ? 'active' : ''}`} onClick={() => setSortOrder('newest')}>Yeniden Eskiye</div>
                 </div>
               )}
             </div>
           </>
         )}
         
-        {/* Düzenleme moduna girildiğinde mecburen listeyi orijinal sıralamasına çevirir ki Drag Drop şaşmasın */}
         {canEdit && !isDownloadMode && (
           <button className="secondary-btn" onClick={isEditMode ? handleSaveEdit : () => { setSortOrder('oldest'); setSearchQuery(''); setIsEditMode(true); }} style={{ marginLeft: isEditMode ? 'auto' : '15px', background: isEditMode ? 'var(--accent)' : 'transparent', color: isEditMode ? 'white' : 'var(--text-muted)' }}>
             {isEditMode ? "Bitti" : "Düzenle"}
@@ -305,6 +294,7 @@ const PlaylistDetail = () => {
 
                     const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
                     
+                    // DÜZELTME: Şu an oynayan şarkı ise vurgu rengi ekle!
                     const isCurrentPlaying = currentSong?.id === song.id;
 
                     return (
