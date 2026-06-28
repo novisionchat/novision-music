@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MdSearch, MdPlayArrow, MdPlaylistAdd, MdClose } from 'react-icons/md';
+import { MdSearch, MdPlayArrow, MdPlaylistAdd, MdClose, MdSync } from 'react-icons/md';
 import usePlayerStore from '../store/usePlayerStore';
 import useAuthStore from '../store/useAuthStore';
 import { db } from '../firebase';
@@ -63,7 +63,6 @@ const Search = () => {
     }
 
     try {
-      // GEREKSİZ API TÜKETİMİNİ ENGELLEMEK İÇİN ARTIST ARAMASI KALDIRILDI
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       setResults(data);
@@ -114,23 +113,34 @@ const Search = () => {
       )}
 
       <div className="search-results">
-        {loading && <div className="loading-container"><span className="material-icons loading-spinner">sync</span><p>Aranıyor...</p></div>}
+        {/* YENİLİK BURADA: Sadece SVG İkonu dönüyor, yazı tipi gecikme hatası önlendi */}
+        {loading && (
+          <div className="loading-container">
+            <MdSync className="loading-spinner" size={40} color="var(--text-muted)" />
+            <p>Aranıyor...</p>
+          </div>
+        )}
 
         {!loading && results.length > 0 && (
           <div className="song-list">
-            {results.map((song, index) => (
-              <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, results, index)}>
-                <div className="song-thumb-container">
-                  <img src={song.thumbnail} alt={song.title} className="song-thumb" />
-                  <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
+            {results.map((song, index) => {
+              // Arama sonuçlarındaki fotoğrafların siyah barlarını silmek için mqdefault düzeltmesi eklendi
+              const displayThumb = (song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
+              
+              return (
+                <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, results, index)}>
+                  <div className="song-thumb-container">
+                    <img src={displayThumb} alt={song.title} className="song-thumb" />
+                    <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
+                  </div>
+                  <div className="song-info">
+                    <div className="song-title">{song.title}</div>
+                    <div className="song-channel">{song.channel}</div>
+                  </div>
+                  <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={28} /></button>
                 </div>
-                <div className="song-info">
-                  <div className="song-title">{song.title}</div>
-                  <div className="song-channel">{song.channel}</div>
-                </div>
-                <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={28} /></button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

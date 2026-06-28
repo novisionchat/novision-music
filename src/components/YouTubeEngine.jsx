@@ -6,7 +6,7 @@ const YouTubeEngine = () => {
   const { 
     currentSong, setPlayerRef, setHtml5PlayerRef, setPlaying, 
     setCurrentTime, setDuration, playNext, playPrev, togglePlay, 
-    isVideoMode, activeEngine, downloadedSongs, isOfflineMode
+    isVideoMode, activeEngine, downloadedSongs, isOfflineMode, currentTime
   } = usePlayerStore();
   
   const progressInterval = useRef(null);
@@ -38,6 +38,7 @@ const YouTubeEngine = () => {
     if (audioRef.current) setHtml5PlayerRef(audioRef.current);
   }, [setHtml5PlayerRef]);
 
+  // Arka Plan/iOS PWA için Medya Bildirim Desteği (Tam Çözünürlüklü Resimler ve Butonlar)
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       const localData = downloadedSongs[currentSong.id];
@@ -63,16 +64,14 @@ const YouTubeEngine = () => {
     }
   }, [currentSong, togglePlay, playPrev, playNext, downloadedSongs]);
 
-  // Görsel Senkronizasyon Döngüsü
+  // Görsel Senkronizasyon Döngüsü: Videonun Ses Motoruna Ayak Uydurmasını Sağlar (Sadece Arka Planda)
   useEffect(() => {
     let syncInterval;
     if (activeEngine === 'html5') {
       syncInterval = setInterval(() => {
         const state = usePlayerStore.getState();
-        if (state.isSeeking) return; // Kalkan devredeyse senkronizasyonu durdur
-        
         const ytPlayer = state.playerRef;
-        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+        if (state.isVideoMode && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
            const ytTime = ytPlayer.getCurrentTime() || 0;
            const storeTime = state.currentTime;
            if (Math.abs(ytTime - storeTime) > 2) {
@@ -112,12 +111,7 @@ const YouTubeEngine = () => {
     if (event.data === 1) { 
       setPlaying(true); setDuration(player.getDuration());
       if (progressInterval.current) clearInterval(progressInterval.current);
-      progressInterval.current = setInterval(() => {
-          // Kalkan devredeyse YouTube'dan saniye okuma
-          if (!usePlayerStore.getState().isSeeking) {
-              setCurrentTime(player.getCurrentTime());
-          }
-      }, 1000);
+      progressInterval.current = setInterval(() => setCurrentTime(player.getCurrentTime()), 1000);
     } else if (event.data === 2) { 
       setPlaying(false);
       if (progressInterval.current) clearInterval(progressInterval.current);
@@ -132,22 +126,19 @@ const YouTubeEngine = () => {
   const onAudioEnded = () => { if (usePlayerStore.getState().activeEngine === 'html5') playNext(); };
   
   const onAudioTimeUpdate = () => {
-    const state = usePlayerStore.getState();
-    if (state.activeEngine !== 'html5' || !audioRef.current || state.isSeeking) return;
-    
-    if (audioRef.current.dataset.isTransitioning === "true") return; 
-
+    if (usePlayerStore.getState().activeEngine !== 'html5' || !audioRef.current) return;
     setCurrentTime(audioRef.current.currentTime);
   };
-  
   const onAudioLoadedMetadata = () => {
     if (usePlayerStore.getState().activeEngine !== 'html5' || !audioRef.current) return;
     setDuration(audioRef.current.duration);
   };
 
+  // SES AKIŞI HATA VERDİĞİNDE ANINDA YOUTUBE PLAYER'A DÖNEN ACİL DURUM KANCASI
   const onAudioError = () => {
     const state = usePlayerStore.getState();
     if (state.activeEngine === 'html5' && navigator.onLine && !downloadedSongs[state.currentSong?.id]) {
+       console.warn("Ses akışında hata oluştu. Varsayılan oynatıcıya geçiliyor...");
        state.setFallbackToYoutube();
     }
   };
@@ -172,6 +163,7 @@ const YouTubeEngine = () => {
           iframeClassName="youtube-video-fill" 
         />
       )}
+      {/* HTML5 Audio üzerinde CORS preflight engelini kaldırmak için crossOrigin tamamen silindi */}
       <audio 
         ref={audioRef}
         onPlay={onAudioPlay}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdPlayArrow, MdPlaylistAdd, MdPeople } from 'react-icons/md';
+import { MdArrowBack, MdPlayArrow, MdPlaylistAdd, MdPeople, MdSync } from 'react-icons/md';
 import { getArtistProfile, getArtistTopTracks } from '../utils/youtubeApi';
 import usePlayerStore from '../store/usePlayerStore';
 
@@ -31,7 +31,6 @@ const ArtistDetail = () => {
         const profile = await getArtistProfile(name);
         setArtist(profile);
         
-        // DÜZELTME: Eğer varsa albümlerin durduğu songsChannelId'yi kullan, yoksa şahsi ID'yi kullan
         const targetChannelId = profile.songsChannelId || profile.id;
         const tracks = await getArtistTopTracks(targetChannelId);
         setSongs(tracks);
@@ -44,7 +43,14 @@ const ArtistDetail = () => {
     fetchArtistData();
   }, [name]);
 
-  if (loading) return <div className="loading-container"><div className="loading-spinner">sync</div><p>Sanatçı Aranıyor...</p></div>;
+  // YENİLİK: Sync yazısı kaldırıldı, doğrudan SVG ikon yüklendi.
+  if (loading) return (
+    <div className="loading-container" style={{ marginTop: '50px' }}>
+      <MdSync className="loading-spinner" size={40} color="var(--text-muted)" />
+      <p>Sanatçı Aranıyor...</p>
+    </div>
+  );
+  
   if (!artist) return <div style={{ padding: '20px', color: 'gray', textAlign: 'center', marginTop: '50px' }}>Böyle bir sanatçı bulunamadı. Lütfen kelimeleri doğru yazdığınıza emin olun.</div>;
 
   const playAll = () => {
@@ -86,19 +92,24 @@ const ArtistDetail = () => {
       </div>
 
       <div className="song-list">
-        {songs.map((song, index) => (
-          <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, songs, index)}>
-            <div style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 'bold' }}>{index + 1}</div>
-            <div className="song-thumb-container">
-              <img src={song.thumbnail} alt={song.title} className="song-thumb" />
-              <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
+        {songs.map((song, index) => {
+          // FOTOĞRAF DÜZELTMESİ (Siyah barları yok eden mqdefault zorlaması)
+          const displayThumb = (song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
+          
+          return (
+            <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, songs, index)}>
+              <div style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 'bold' }}>{index + 1}</div>
+              <div className="song-thumb-container">
+                <img src={displayThumb} alt={song.title} className="song-thumb" />
+                <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
+              </div>
+              <div className="song-info">
+                <div className="song-title">{song.title}</div>
+              </div>
+              <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={24} /></button>
             </div>
-            <div className="song-info">
-              <div className="song-title">{song.title}</div>
-            </div>
-            <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={24} /></button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

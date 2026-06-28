@@ -25,7 +25,11 @@ const PlayerBar = () => {
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const localData = downloadedSongs[currentSong.id];
-  const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
+  
+  // FOTOĞRAF DÜZELTMESİ (Zoom iptali, siyah bar engeli)
+  const displayThumb = (localData?.localThumbUrl || currentSong.thumbnail || '')
+                       .replace('hqdefault.jpg', 'mqdefault.jpg')
+                       .replace('sddefault.jpg', 'mqdefault.jpg');
 
   if (isMobile) {
     return (
@@ -50,7 +54,6 @@ const PlayerBar = () => {
         onClick={togglePanel}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px' }}>
-          {/* FOTOĞRAFI SIKIŞTIRAN SARICI EKLENDİ */}
           <div className="track-thumb-wrapper" style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
              <img src={displayThumb} alt="cover" className="track-thumb" />
           </div>
@@ -92,7 +95,6 @@ const PlayerBar = () => {
   return (
     <footer className="player-bar-container">
       <div className="now-playing-info clickable" onClick={togglePanel} style={{ cursor: 'pointer' }}>
-        {/* FOTOĞRAFI SIKIŞTIRAN SARICI EKLENDİ */}
         <div className="track-thumb-wrapper" style={{ width: '56px', height: '56px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
           <img src={displayThumb} alt="cover" className="track-thumb" />
         </div>

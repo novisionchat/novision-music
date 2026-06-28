@@ -58,7 +58,11 @@ const NowPlayingPanel = () => {
   };
 
   const localData = downloadedSongs[currentSong.id];
-  const displayThumb = localData?.localThumbUrl || currentSong.thumbnail;
+  
+  // FOTOĞRAF DÜZELTMESİ
+  const displayThumb = (localData?.localThumbUrl || currentSong.thumbnail || '')
+                       .replace('hqdefault.jpg', 'mqdefault.jpg')
+                       .replace('sddefault.jpg', 'mqdefault.jpg');
   
   const isDownloaded = !!localData;
   const isDownloading = downloadQueue.includes(currentSong.id);
@@ -91,7 +95,6 @@ const NowPlayingPanel = () => {
           <img src={displayThumb} alt="cover" className="panel-artwork" style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} />
         </div>
 
-        {/* YENİLENMİŞ PANEL INFO KISMI */}
         <div className={`panel-info ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ flex: 1, paddingRight: '15px' }}>

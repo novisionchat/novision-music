@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { MdHomeFilled, MdSearch, MdLibraryMusic, MdExpandMore, MdMenu } from 'react-icons/md';
+import { MdHomeFilled, MdSearch, MdLibraryMusic, MdExpandMore, MdMenu, MdFavorite } from 'react-icons/md';
 import YouTubeEngine from './YouTubeEngine';
 import PlayerBar from './PlayerBar';
 import NowPlayingPanel from './NowPlayingPanel';
@@ -53,6 +53,7 @@ const Layout = () => {
 
   return (
     <div className="layout-container">
+      {/* SOL MENÜ (PC & TABLET) */}
       <aside 
         className="sidebar-desktop" 
         style={{ 
@@ -143,7 +144,10 @@ const Layout = () => {
                     if (pl.id === 'liked') {
                       thumb = 'gradient';
                     } else if (pl.songs && pl.songs.length > 0) {
-                      thumb = pl.songs[0].thumbnail;
+                      // FOTOĞRAF DÜZELTMESİ (Siyah barları yok eden mqdefault zorlaması)
+                      thumb = (pl.songs[0].thumbnail || '')
+                              .replace('hqdefault.jpg', 'mqdefault.jpg')
+                              .replace('sddefault.jpg', 'mqdefault.jpg');
                     }
 
                     return (
@@ -154,12 +158,13 @@ const Layout = () => {
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
                       >
                         {thumb === 'gradient' ? (
+                          // YENİLİK: Ev ikonu yerine kalp (MdFavorite) ikonu yerleştirildi!
                           <div style={{ width: '32px', height: '32px', borderRadius: '4px', background: 'linear-gradient(135deg, #FF2A54, #8b0021)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
-                            <MdHomeFilled size={16} color="white" />
+                            <MdFavorite size={16} color="white" />
                           </div>
                         ) : (
                           <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden', flexShrink: 0 }}>
-                             <img src={thumb} alt={pl.name} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scale(1.35)' }} />
+                             <img src={thumb} alt={pl.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -176,6 +181,7 @@ const Layout = () => {
         </div>
       </aside>
 
+      {/* ANA İÇERİK ALANI */}
       <main className="main-content">
         <header className="top-bar">
           <div style={{ flex: 1 }}></div>
@@ -183,15 +189,23 @@ const Layout = () => {
             <img src={profile?.avatar || '/icon.png'} alt="User" />
           </div>
         </header>
+
         <Outlet />
       </main>
 
       <NowPlayingPanel />
 
+      {/* MOBİL ALT MENÜ */}
       <nav className="mobile-bottom-nav">
-        <NavLink to="/" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdHomeFilled size={26} /><span>Ana Sayfa</span></NavLink>
-        <NavLink to="/search" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdSearch size={26} /><span>Ara</span></NavLink>
-        <NavLink to="/library" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}><MdLibraryMusic size={26} /><span>Kitaplık</span></NavLink>
+        <NavLink to="/" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdHomeFilled size={26} /><span>Ana Sayfa</span>
+        </NavLink>
+        <NavLink to="/search" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdSearch size={26} /><span>Ara</span>
+        </NavLink>
+        <NavLink to="/library" className={({ isActive }) => isActive ? 'm-nav-item active' : 'm-nav-item'}>
+          <MdLibraryMusic size={26} /><span>Kitaplık</span>
+        </NavLink>
       </nav>
 
       <PlayerBar />

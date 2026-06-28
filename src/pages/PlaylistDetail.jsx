@@ -38,7 +38,6 @@ const PlaylistDetail = () => {
   const [isNameEditing, setIsNameEditing] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   
-  // YENİLİK: Sıralama tercihi önbellekten okunuyor
   const [sortOrder, setSortOrder] = useState(localStorage.getItem('novision_playlist_sort') || 'oldest');
   
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -100,7 +99,6 @@ const PlaylistDetail = () => {
     }
   }, [id, user, ownerId, downloadedSongs, localPlaylists, likedSongs, isExternal]);
 
-  // YENİLİK: Sıralama değiştirildiğinde önbelleğe de kaydedilir
   const handleSortChange = (val) => {
     setSortOrder(val);
     localStorage.setItem('novision_playlist_sort', val);
@@ -270,7 +268,6 @@ const PlaylistDetail = () => {
           </>
         )}
         
-        {/* Düzenleme moduna girildiğinde mecburen listeyi orijinal sıralamasına çevirir ki Drag Drop şaşmasın */}
         {canEdit && !isDownloadMode && (
           <button className="secondary-btn" onClick={isEditMode ? handleSaveEdit : () => { setSortOrder('oldest'); setSearchQuery(''); setIsEditMode(true); }} style={{ marginLeft: isEditMode ? 'auto' : '15px', background: isEditMode ? 'var(--accent)' : 'transparent', color: isEditMode ? 'white' : 'var(--text-muted)' }}>
             {isEditMode ? "Bitti" : "Düzenle"}
@@ -303,7 +300,10 @@ const PlaylistDetail = () => {
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
 
-                    const rowThumb = downloadedSongs[song.id]?.localThumbUrl || song.thumbnail;
+                    // FOTOĞRAF DÜZELTMESİ (Siyah barları yok eden mqdefault zorlaması)
+                    const rowThumb = (downloadedSongs[song.id]?.localThumbUrl || song.thumbnail || '')
+                                     .replace('hqdefault.jpg', 'mqdefault.jpg')
+                                     .replace('sddefault.jpg', 'mqdefault.jpg');
                     
                     const isCurrentPlaying = currentSong?.id === song.id;
 
