@@ -63,11 +63,14 @@ const YouTubeEngine = () => {
     }
   }, [currentSong, togglePlay, playPrev, playNext, downloadedSongs]);
 
+  // Görsel Senkronizasyon Döngüsü
   useEffect(() => {
     let syncInterval;
     if (activeEngine === 'html5') {
       syncInterval = setInterval(() => {
         const state = usePlayerStore.getState();
+        if (state.isSeeking) return; // Kalkan devredeyse senkronizasyonu durdur
+        
         const ytPlayer = state.playerRef;
         if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
            const ytTime = ytPlayer.getCurrentTime() || 0;
@@ -109,7 +112,12 @@ const YouTubeEngine = () => {
     if (event.data === 1) { 
       setPlaying(true); setDuration(player.getDuration());
       if (progressInterval.current) clearInterval(progressInterval.current);
-      progressInterval.current = setInterval(() => setCurrentTime(player.getCurrentTime()), 1000);
+      progressInterval.current = setInterval(() => {
+          // Kalkan devredeyse YouTube'dan saniye okuma
+          if (!usePlayerStore.getState().isSeeking) {
+              setCurrentTime(player.getCurrentTime());
+          }
+      }, 1000);
     } else if (event.data === 2) { 
       setPlaying(false);
       if (progressInterval.current) clearInterval(progressInterval.current);
@@ -124,9 +132,9 @@ const YouTubeEngine = () => {
   const onAudioEnded = () => { if (usePlayerStore.getState().activeEngine === 'html5') playNext(); };
   
   const onAudioTimeUpdate = () => {
-    if (usePlayerStore.getState().activeEngine !== 'html5' || !audioRef.current) return;
+    const state = usePlayerStore.getState();
+    if (state.activeEngine !== 'html5' || !audioRef.current || state.isSeeking) return;
     
-    // UI Titremelerini engelleyen ZAMAN KALKANI
     if (audioRef.current.dataset.isTransitioning === "true") return; 
 
     setCurrentTime(audioRef.current.currentTime);

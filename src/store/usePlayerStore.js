@@ -46,6 +46,11 @@ const usePlayerStore = create((set, get) => ({
   
   downloadQueue: [], downloadProgress: {}, downloadXHRs: {}, downloadQueueList: [],
 
+  // --- KAYDIRMA KALKANI İÇİN YENİ STATELER ---
+  isSeeking: false,
+  seekTimeout: null,
+  seekUnlockTimeout: null,
+
   likedSongs: [],
   setLikedSongs: (songs) => set({ likedSongs: songs || [] }),
   toggleLike: async (song) => {
@@ -83,10 +88,9 @@ const usePlayerStore = create((set, get) => ({
     if (state.isVideoMode === val) return;
     set({ isVideoMode: val });
 
-    // Senin asıl vizyonun: Seste Ses, Videoda Video!
     if (state.currentSong && state.isPlaying) {
       const currentTime = state._getCurrentEngineTime();
-      state.seekTo(currentTime); // Geçiş anında UI barını dondurur
+      state.seekTo(currentTime);
       if (val) {
          state.setFallbackToYoutube();
       } else {
@@ -138,7 +142,8 @@ const usePlayerStore = create((set, get) => ({
         if (state.nativeProgressInterval) clearInterval(state.nativeProgressInterval);
         const interval = setInterval(async () => {
           const currentState = get();
-          if (currentState.activeEngine !== 'html5' || !currentState.isPlaying) return;
+          // EĞER KALKAN DEVREDEYSE GÜNCELLEMEYİ YOK SAY (Titreme olmaz)
+          if (currentState.activeEngine !== 'html5' || !currentState.isPlaying || currentState.isSeeking) return;
           try {
             const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
             const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
@@ -155,30 +160,28 @@ const usePlayerStore = create((set, get) => ({
         const finalSrc = localData ? localData.localAudioUrl : streamUrlToAssign;
         const isSameSong = html5El.getAttribute('data-song-id') === state.currentSong.id;
 
-        // KALKAN AKTİF: Müzik doğru saniyede yüklenene kadar UI titremesini engeller!
         html5El.dataset.isTransitioning = "true";
 
         if (!isSameSong) {
             html5El.setAttribute('data-song-id', state.currentSong.id);
             html5El.src = finalSrc;
+            html5El.load();
         }
 
         const attemptSeekAndPlay = () => {
             html5El.currentTime = time;
             html5El.play().then(() => {
-                // Şarkı başladıktan yarım saniye sonra kalkanı kaldır
                 setTimeout(() => { html5El.dataset.isTransitioning = "false"; }, 400);
             }).catch(() => {
                 html5El.dataset.isTransitioning = "false";
             });
         };
 
-        // Eğer metadata çoktan yüklüyse anında geç, değilse yüklenmesini BEKLE! (Sırrımız bu)
         if (html5El.readyState >= 1) {
             attemptSeekAndPlay();
         } else {
             html5El.addEventListener('loadedmetadata', attemptSeekAndPlay, { once: true });
-            html5El.load(); // Metadatayı yüklemesi için tetikliyoruz
+            html5El.play().catch(() => {});
         }
       }
     }
@@ -210,14 +213,8 @@ const usePlayerStore = create((set, get) => ({
       let loadedSongs = {};
 
       if (isNative) {
-        try {
-          metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {};
-        } catch (e) {}
-
-        try {
-          lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || [];
-        } catch (e) {}
-
+        try { metadata = (await safeReadJSON(Filesystem, Directory, 'downloaded_metadata.json')) || {}; } catch (e) {}
+        try { lPlaylists = (await safeReadJSON(Filesystem, Directory, 'local_playlists.json')) || []; } catch (e) {}
         set({ downloadedMetadata: metadata, localPlaylists: lPlaylists });
 
         try {
@@ -229,9 +226,7 @@ const usePlayerStore = create((set, get) => ({
                 const id = fileName.replace('.mp3', '');
                 const audioUri = await Filesystem.getUri({ path: fileName, directory: Directory.Data });
                 
-                let localThumbUrl = null;
-                let localThumbFileUrl = null; 
-                
+                let localThumbUrl = null; let localThumbFileUrl = null; 
                 const hasThumb = result.files.some(f => {
                   const fName = typeof f === 'string' ? f : f.name;
                   return fName === `${id}_thumb.jpg`;
@@ -250,7 +245,7 @@ const usePlayerStore = create((set, get) => ({
                   localNativeUrl: audioUri.uri,
                   localThumbUrl: localThumbUrl || '/icon.png',
                   localThumbFileUrl: localThumbFileUrl || '/icon.png',
-                  metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen Sanatçı", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
+                  metadata: metadata[id] || { id, title: "Çevrimdışı Şarkı", channel: "Bilinmeyen", thumbnail: localThumbUrl || '/icon.png', lyrics: [] }
                 };
               }
             }
@@ -356,8 +351,7 @@ const usePlayerStore = create((set, get) => ({
               }
             } catch(e) {}
 
-            let localAudioUrl = ""; let localThumbUrl = null;
-            let localNativeUrl = "";
+            let localAudioUrl = ""; let localThumbUrl = null; let localNativeUrl = "";
             const newMetadata = { id: song.id, title: song.title, channel: song.channel, thumbnail: song.thumbnail, lyrics: fetchedLyrics };
             const updatedMetadata = { ...get().downloadedMetadata, [song.id]: newMetadata };
 
@@ -389,13 +383,7 @@ const usePlayerStore = create((set, get) => ({
                 downloadedMetadata: updatedMetadata,
                 downloadedSongs: { 
                   ...s.downloadedSongs, 
-                  [song.id]: { 
-                    localAudioUrl, 
-                    localNativeUrl, 
-                    localThumbUrl: localThumbUrl || song.thumbnail, 
-                    localThumbFileUrl: localNativeUrl ? localNativeUrl.replace('.mp3', '_thumb.jpg') : song.thumbnail,
-                    metadata: newMetadata 
-                  } 
+                  [song.id]: { localAudioUrl, localNativeUrl, localThumbUrl: localThumbUrl || song.thumbnail, localThumbFileUrl: localNativeUrl ? localNativeUrl.replace('.mp3', '_thumb.jpg') : song.thumbnail, metadata: newMetadata } 
                 },
                 downloadQueue: s.downloadQueue.filter(id => id !== song.id), downloadXHRs: newXHRs
               };
@@ -471,29 +459,45 @@ const usePlayerStore = create((set, get) => ({
     if (get().isOfflineMode) return;
 
     if (!isActive) {
-      // EKRAN KAPANDIĞINDA: YouTube'dan Sese Devret (Zaman Kalkanlı)
       if (activeEngine === 'youtube') {
         if (currentStreamUrl) {
           if (playerRef && typeof playerRef.pauseVideo === 'function') playerRef.pauseVideo();
           set({ activeEngine: 'html5' });
 
-          const html5El = state.html5PlayerRef;
-          if (html5El) {
-              html5El.dataset.isTransitioning = "true"; // Kalkan
-              const attemptSeekAndPlay = () => {
-                  html5El.currentTime = currentTime;
-                  html5El.play().then(() => setTimeout(() => { html5El.dataset.isTransitioning = "false"; }, 400));
-              };
-              if (html5El.readyState >= 1) attemptSeekAndPlay();
-              else {
-                  html5El.addEventListener('loadedmetadata', attemptSeekAndPlay, { once: true });
-                  html5El.load();
-              }
+          const localData = state.downloadedSongs[state.currentSong?.id];
+          const finalSrc = localData ? (localData.localNativeUrl || localData.localAudioUrl) : currentStreamUrl;
+          const finalThumb = localData ? (localData.localThumbFileUrl || '/icon.png') : (currentSong.thumbnail || '/icon.png');
+
+          if (isNative && AudioPlayer) {
+            try {
+              await AudioPlayer.destroy({ audioId: 'novision-track' }).catch(() => {});
+              await AudioPlayer.create({
+                audioId: 'novision-track',
+                audioSource: finalSrc,
+                friendlyTitle: currentSong.title,
+                artistName: currentSong.channel,
+                artworkSource: finalThumb,
+                useForNotification: true,
+                isBackgroundMusic: true,
+                loop: false,
+              });
+              await AudioPlayer.onAudioEnd({ audioId: 'novision-track' }, () => get().playNext());
+              await AudioPlayer.onPlaybackStatusChange({ audioId: 'novision-track' }, (result) => {
+                if (result.status === 'playing') set({ isPlaying: true });
+                else if (result.status === 'paused') set({ isPlaying: false });
+              });
+              await AudioPlayer.initialize({ audioId: 'novision-track' }).catch(() => {});
+              await AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(currentTime) });
+              await AudioPlayer.play({ audioId: 'novision-track' });
+            } catch (err) {}
+          } else if (html5PlayerRef) {
+            html5PlayerRef.src = finalSrc;
+            html5PlayerRef.currentTime = currentTime;
+            html5PlayerRef.play().catch(() => {});
           }
         }
       }
     } else {
-      // EKRAN AÇILDIĞINDA: Sesten YouTube'a (Sadece Video modundaysa) Devret
       if (activeEngine === 'html5' && state.isVideoMode) {
         if (isNative && AudioPlayer) await AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
         else if (html5PlayerRef) html5PlayerRef.pause();
@@ -512,13 +516,21 @@ const usePlayerStore = create((set, get) => ({
 
   setFallbackToYoutube: () => {
     const state = get();
+    const ytEl = state.playerRef;
+    const html5El = state.html5PlayerRef;
+    
     set({ activeEngine: 'youtube' });
-    if (state.html5PlayerRef) state.html5PlayerRef.pause();
-    if (state.playerRef) {
-      state.playerRef.unMute();
-      state.playerRef.setVolume(state.volume || 100);
-      state.playerRef.seekTo(state.currentTime, true);
-      state.playerRef.playVideo();
+
+    if (html5El) html5El.pause();
+    if (isNative && AudioPlayer) {
+      AudioPlayer.pause({ audioId: 'novision-track' }).catch(() => {});
+    }
+
+    if (ytEl && typeof ytEl.unMute === 'function') {
+      ytEl.unMute();
+      ytEl.setVolume(state.volume || 100);
+      ytEl.seekTo(state.currentTime, true);
+      ytEl.playVideo();
     }
   },
 
@@ -537,7 +549,6 @@ const usePlayerStore = create((set, get) => ({
     const isActuallyDownloaded = !!localData;
     const isAppBackground = document.visibilityState === 'hidden';
     
-    // Senin gerçek mimarin: Şarkıda Ses, Videoda YouTube!
     const nextEngine = isActuallyDownloaded ? 'html5' 
                      : isAppBackground ? 'html5' 
                      : get().isVideoMode ? 'youtube'
@@ -551,7 +562,6 @@ const usePlayerStore = create((set, get) => ({
       return; 
     }
 
-    // SONRAKİ ŞARKIYI ÖNCEDEN YÜKLE (8 Saniye Gecikmeli Başlar - İlk Açılışı Asla Yavaşlatmaz!)
     setTimeout(() => {
         const currentState = get();
         if (currentState.currentSong?.id !== song.id) return; 
@@ -617,7 +627,8 @@ const usePlayerStore = create((set, get) => ({
 
             const interval = setInterval(async () => {
               const currentState = get();
-              if (currentState.activeEngine !== 'html5' || !currentState.isPlaying) return;
+              // KALKAN DEVREDEYSE SANIYE OKUMA (TİTREMEYİ ENGELLER)
+              if (currentState.activeEngine !== 'html5' || !currentState.isPlaying || currentState.isSeeking) return;
               try {
                 const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
                 const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
@@ -698,15 +709,38 @@ const usePlayerStore = create((set, get) => ({
     }
   },
   
+  // ==========================================
+  // AKILLI KAYDIRMA KALKANI (Debounce + Titreme Koruması)
+  // ==========================================
   seekTo: (seconds) => { 
-    const { playerRef, html5PlayerRef, activeEngine } = get(); 
-    if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { playerRef.seekTo(seconds, true); } 
-    else if (activeEngine === 'html5') {
-      if (isNative && AudioPlayer) AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(seconds) });
-      else if (html5PlayerRef) html5PlayerRef.currentTime = seconds;
-      if (playerRef && playerRef.seekTo) playerRef.seekTo(seconds, true);
-    }
-    set({ currentTime: seconds }); 
+    const state = get(); 
+    
+    // UI barını anında kullanıcıya göster ve "Kalkanı" indir (setInterval'leri sustur)
+    set({ currentTime: seconds, isSeeking: true }); 
+    
+    if (state.seekTimeout) clearTimeout(state.seekTimeout); 
+    if (state.seekUnlockTimeout) clearTimeout(state.seekUnlockTimeout); 
+
+    // Kaydırma işlemi durduktan 150ms sonra Asıl Motorlara Emri Yolla
+    const sTimeout = setTimeout(() => { 
+      const { playerRef, html5PlayerRef, activeEngine } = get(); 
+      if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { 
+        playerRef.seekTo(seconds, true); 
+      } else if (activeEngine === 'html5') { 
+        if (isNative && AudioPlayer) {
+          AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(seconds) }).catch(() => {});
+        } else if (html5PlayerRef) { 
+          html5PlayerRef.currentTime = seconds; 
+        } 
+        if (playerRef && playerRef.seekTo) playerRef.seekTo(seconds, true); 
+      } 
+      
+      // Emir verildikten yaklaşık 1 saniye sonra kalkanı kaldır ki Native Eklenti kendine gelsin
+      const uTimeout = setTimeout(() => set({ isSeeking: false }), 800); 
+      set({ seekUnlockTimeout: uTimeout }); 
+    }, 150); 
+    
+    set({ seekTimeout: sTimeout }); 
   },
 
   _getCurrentEngineTime: () => {
