@@ -32,6 +32,9 @@ const PlaylistDetail = () => {
   const updateLocalPlaylistName = usePlayerStore(s => s.updateLocalPlaylistName);
   const likedSongs = usePlayerStore(s => s.likedSongs);
   
+  // DÜZELTME: Oynatma zamanını güncelleme fonksiyonu çağırıldı
+  const updatePlaylistLastPlayed = usePlayerStore(s => s.updatePlaylistLastPlayed);
+  
   const [playlist, setPlaylist] = useState(null);
   const [songs, setSongs] = useState([]);
   const [isEditMode, setIsEditMode] = useState(location.state?.autoEdit || false);
@@ -153,14 +156,23 @@ const PlaylistDetail = () => {
     const newSongs = [...songs]; newSongs.splice(index, 1); setSongs(newSongs);
   };
 
+  // DÜZELTME: "Hepsini Oynat" butonuna basınca playlist tarihi güncelleniyor!
   const handlePlayAll = async () => {
     if (songs.length === 0) return toast.error("Liste boş!");
     const startIndex = isShuffle ? Math.floor(Math.random() * songs.length) : 0;
     playSong(songs[startIndex], songs, startIndex);
     
+    updatePlaylistLastPlayed(id, isLocal, user);
+    
     if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder && !isLiked && !isTrend) {
       await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: downloadedSongs[songs[0]?.id]?.localThumbUrl || songs[0]?.thumbnail || '/icon.png' });
     }
+  };
+
+  // DÜZELTME: Şarkıya basarak oynatma başladığında da çalma listesinin son çalınma zamanı güncelleniyor!
+  const handlePlaySong = (song, index) => {
+    playSong(song, displaySongs, index);
+    updatePlaylistLastPlayed(id, isLocal, user);
   };
 
   const toggleSelectSong = (songId) => setSelectedSongs(prev => prev.includes(songId) ? prev.filter(id => id !== songId) : [...prev, songId]);
@@ -300,7 +312,6 @@ const PlaylistDetail = () => {
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
 
-                    // FOTOĞRAF DÜZELTMESİ (Siyah barları yok eden mqdefault zorlaması)
                     const rowThumb = (downloadedSongs[song.id]?.localThumbUrl || song.thumbnail || '')
                                      .replace('hqdefault.jpg', 'mqdefault.jpg')
                                      .replace('sddefault.jpg', 'mqdefault.jpg');
@@ -315,12 +326,13 @@ const PlaylistDetail = () => {
                             
                             {isDownloadMode && <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />}
 
-                            <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
+                            {/* DÜZELTME: Şarkı çalma fonksiyonu handlePlaySong ile bağlandı */}
+                            <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && handlePlaySong(song, displayIndex)}>
                               <img src={rowThumb} alt={song.title} className="song-thumb" />
                               {!isEditMode && !isDownloadMode && <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>}
                             </div>
 
-                            <div className="song-info" onClick={() => !isEditMode && !isDownloadMode && playSong(song, displaySongs, displayIndex)}>
+                            <div className="song-info" onClick={() => !isEditMode && !isDownloadMode && handlePlaySong(song, displayIndex)}>
                               <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span style={{ color: isCurrentPlaying ? 'var(--accent)' : 'white' }}>{song.title}</span>
                                 {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>}

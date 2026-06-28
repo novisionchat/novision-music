@@ -45,15 +45,20 @@ const Layout = () => {
     localStorage.setItem('sidebar_collapsed', nextState);
   };
 
+  // DÜZELTME: Dinamik çalma listeleri (Yerel + Bulut) son oynatma tarihine göre büyükten küçüğe sıralanıyor!
+  const dynamicPlaylists = [...localPlaylists, ...playlists].sort((a, b) => {
+    const ta = a.lastPlayed || 0;
+    const tb = b.lastPlayed || 0;
+    return tb - ta;
+  });
+
   const sidebarPlaylists = [
     { id: 'liked', name: 'Beğenilen Şarkılar', songs: likedSongs, isStatic: true },
-    ...localPlaylists,
-    ...playlists
+    ...dynamicPlaylists
   ];
 
   return (
     <div className="layout-container">
-      {/* SOL MENÜ (PC & TABLET) */}
       <aside 
         className="sidebar-desktop" 
         style={{ 
@@ -144,7 +149,6 @@ const Layout = () => {
                     if (pl.id === 'liked') {
                       thumb = 'gradient';
                     } else if (pl.songs && pl.songs.length > 0) {
-                      // FOTOĞRAF DÜZELTMESİ (Siyah barları yok eden mqdefault zorlaması)
                       thumb = (pl.songs[0].thumbnail || '')
                               .replace('hqdefault.jpg', 'mqdefault.jpg')
                               .replace('sddefault.jpg', 'mqdefault.jpg');
@@ -158,7 +162,6 @@ const Layout = () => {
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
                       >
                         {thumb === 'gradient' ? (
-                          // YENİLİK: Ev ikonu yerine kalp (MdFavorite) ikonu yerleştirildi!
                           <div style={{ width: '32px', height: '32px', borderRadius: '4px', background: 'linear-gradient(135deg, #FF2A54, #8b0021)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
                             <MdFavorite size={16} color="white" />
                           </div>

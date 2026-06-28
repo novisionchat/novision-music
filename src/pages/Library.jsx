@@ -51,7 +51,7 @@ const Library = () => {
       createLocalPlaylist(newPlaylistName.trim());
     } else {
       const newRef = push(ref(db, `users/${user.uid}/playlists`));
-      await set(newRef, { id: newRef.key, name: newPlaylistName.trim(), songs: [] });
+      await set(newRef, { id: newRef.key, name: newPlaylistName.trim(), songs: [], lastPlayed: 0 });
     }
     resetAndCloseModal();
   };
@@ -73,7 +73,7 @@ const Library = () => {
               const foundPlaylist = snap.val();
               const newRef = push(ref(db, `users/${user.uid}/playlists`));
               const copiedSongs = (foundPlaylist.songs || []).map((s, idx) => ({ ...s, uniqueId: `${s.id}-${Date.now()}-${idx}` }));
-              await set(newRef, { id: newRef.key, name: foundPlaylist.name + " (Kopya)", songs: copiedSongs });
+              await set(newRef, { id: newRef.key, name: foundPlaylist.name + " (Kopya)", songs: copiedSongs, lastPlayed: 0 });
               toast.success("Novision çalma listesi başarıyla kopyalandı!");
               resetAndCloseModal();
               return;
@@ -93,7 +93,7 @@ const Library = () => {
         const data = await res.json();
         const newRef = push(ref(db, `users/${user.uid}/playlists`));
         const fetchedSongs = (data.videos || []).map((s, idx) => ({ ...s, uniqueId: `${s.id}-${Date.now()}-${idx}` }));
-        await set(newRef, { id: newRef.key, name: data.playlistName || "YouTube Playlist", songs: fetchedSongs });
+        await set(newRef, { id: newRef.key, name: data.playlistName || "YouTube Playlist", songs: fetchedSongs, lastPlayed: 0 });
         toast.success(`"${data.playlistName}" başarıyla eklendi!`);
         resetAndCloseModal();
       } else { toast.error("Geçerli bir YouTube veya Novision playlist linki giriniz."); }
@@ -130,6 +130,16 @@ const Library = () => {
     ), { duration: Infinity, position: 'top-center' });
   };
 
+  // DÜZELTME: Yerel ve bulut çalma listeleri tek çatı altında toplanıyor ve son çalınmaya (lastPlayed) göre diziliyor!
+  const dynamicPlaylists = [
+    ...localPlaylists.map(p => ({ ...p, isLocal: true })),
+    ...playlists.map(p => ({ ...p, isLocal: false }))
+  ].sort((a, b) => {
+    const ta = a.lastPlayed || 0;
+    const tb = b.lastPlayed || 0;
+    return tb - ta;
+  });
+
   return (
     <div className="library-page" onClick={() => setActiveDropdown(null)}>
       <div className="library-header">
@@ -157,8 +167,10 @@ const Library = () => {
           <div className="card-subtitle">{Object.keys(downloadedSongs).length} Şarkı</div>
         </div>
 
-        {localPlaylists.map(pl => {
-          const thumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
+        {/* YENİLİK: Yerel ve Bulut listeleri en son çalınana göre sıralı şekilde tek bir döngüde çizilir */}
+        {dynamicPlaylists.map(pl => {
+          const rawThumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
+          const thumb = rawThumb.replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
           return (
             <div key={pl.id} className="home-card" style={{ position: 'relative' }} onClick={() => navigate(`/playlist/${pl.id}`)}>
               <div className="card-thumb-wrapper"><img src={thumb} alt={pl.name} /></div>
@@ -168,35 +180,24 @@ const Library = () => {
                 </button>
                 {activeDropdown === pl.id && (
                   <div className="custom-dropdown-menu">
-                    <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>
-                    <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
+                    {pl.isLocal ? (
+                      <>
+                        <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>
+                        <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/playlist/${pl.id}?owner=${user.uid}`); toast.success("Kopyalandı!"); }}>Paylaş</div>
+                        {!pl.readonly && <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>}
+                        <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
-              <div className="card-title">{pl.name} <span style={{ color: 'var(--accent)', fontSize: '10px' }}>(Yerel)</span></div>
-              <div className="card-subtitle">{pl.songs ? pl.songs.length : 0} Şarkı</div>
-            </div>
-          );
-        })}
-
-        {playlists.map(pl => {
-          const thumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
-          return (
-            <div key={pl.id} className="home-card" style={{ position: 'relative' }} onClick={() => navigate(`/playlist/${pl.id}`)}>
-              <div className="card-thumb-wrapper"><img src={thumb} alt={pl.name} /></div>
-              <div className="kebab-menu-container" style={{ top: '20px', right: '20px' }}>
-                <button className="icon-btn kebab-btn" onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === pl.id ? null : pl.id); }}>
-                  <MdMoreVert size={24} color="white" />
-                </button>
-                {activeDropdown === pl.id && (
-                  <div className="custom-dropdown-menu">
-                    <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${window.location.origin}/playlist/${pl.id}?owner=${user.uid}`); toast.success("Kopyalandı!"); }}>Paylaş</div>
-                    {!pl.readonly && <div className="dropdown-item" onClick={(e) => { e.stopPropagation(); navigate(`/playlist/${pl.id}`, { state: { autoEdit: true } }); }}>Düzenle</div>}
-                    <div className="dropdown-item delete" onClick={(e) => handleDelete(e, pl.id, pl.name)}>Sil</div>
-                  </div>
-                )}
+              <div className="card-title">
+                {pl.name} {pl.isLocal && <span style={{ color: 'var(--accent)', fontSize: '10px' }}>(Yerel)</span>}
               </div>
-              <div className="card-title">{pl.name}</div>
               <div className="card-subtitle">{pl.readonly ? 'Salt Okunur' : (pl.songs ? pl.songs.length : 0) + ' Şarkı'}</div>
             </div>
           );
