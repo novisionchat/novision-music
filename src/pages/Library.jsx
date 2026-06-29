@@ -117,20 +117,26 @@ const Library = () => {
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '5px' }}>
           <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#444', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => toast.dismiss(t.id)}>İptal</button>
           <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#ff4d4d', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={async () => {
+             // 1. Onay penceresini anında kapat
              toast.dismiss(t.id);
+             
+             // 2. İşlemi yap
              if (playlistId.startsWith('local_')) {
                deleteLocalPlaylist(playlistId);
              } else {
                await remove(ref(db, `users/${user.uid}/playlists/${playlistId}`));
              }
-             toast.success("Liste silindi.");
+             
+             // 3. Başarı toast'ını aç ve zorla kapatma komutunu gönder!
+             const successId = toast.success("Liste silindi.");
+             setTimeout(() => { toast.dismiss(successId); }, 3000);
+
           }}>Sil</button>
         </div>
       </div>
     ), { duration: Infinity, position: 'top-center' });
   };
 
-  // DÜZELTME: Yerel ve bulut çalma listeleri tek çatı altında toplanıyor ve son çalınmaya (lastPlayed) göre diziliyor!
   const dynamicPlaylists = [
     ...localPlaylists.map(p => ({ ...p, isLocal: true })),
     ...playlists.map(p => ({ ...p, isLocal: false }))
@@ -167,7 +173,6 @@ const Library = () => {
           <div className="card-subtitle">{Object.keys(downloadedSongs).length} Şarkı</div>
         </div>
 
-        {/* YENİLİK: Yerel ve Bulut listeleri en son çalınana göre sıralı şekilde tek bir döngüde çizilir */}
         {dynamicPlaylists.map(pl => {
           const rawThumb = pl.songs && pl.songs.length > 0 ? pl.songs[0].thumbnail : '/icon.png';
           const thumb = rawThumb.replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');

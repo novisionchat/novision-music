@@ -15,7 +15,7 @@
 body { background-color: var(--bg-amoled); color: var(--text-main); height: 100vh; height: 100dvh; overflow: hidden; -webkit-user-select: none; user-select: none; }
 input, textarea { -webkit-user-select: auto; user-select: auto; }
 
-/* YENİLİK: Uygulama içindeki TÜM resimlerin basılı tutularak telefona kaydedilmesini veya sürüklenmesini engeller */
+/* Uygulama içindeki TÜM resimlerin basılı tutularak telefona kaydedilmesini veya sürüklenmesini engeller */
 img {
   -webkit-touch-callout: none !important; /* iOS: Uzun basınca açılan menüyü kapatır */
   -webkit-user-drag: none !important;     /* iOS/Safari/Chrome: Sürüklemeyi engeller */
@@ -48,7 +48,6 @@ img {
 .now-playing-info { display: flex; align-items: center; gap: 15px; width: 30%; min-width: 180px; transition: 0.2s; }
 .now-playing-info.clickable:hover .track-title { text-decoration: underline; }
 
-/* FOTOĞRAF DÜZELTMESİ - Devasa zoom hatası kaldırıldı */
 .song-thumb, .panel-artwork, .card-thumb-wrapper img, .track-thumb {
   width: 100%;
   height: 100%;
@@ -118,14 +117,46 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .lyrics-card { margin-top: 15px; background-color: rgba(0, 0, 0, 0.4); border-radius: 12px; padding: 20px; width: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; overflow: hidden; flex-shrink: 0; }
 .lyrics-card.expanded { flex: 1; margin-top: 0; background-color: transparent; padding: 0; height: 100%; }
 .lyrics-header { font-size: 18px; font-weight: 700; color: white; margin-bottom: 20px; flex-shrink: 0; }
-.lyrics-content { max-height: 40vh; overflow-y: auto; scroll-behavior: smooth; display: flex; flex-direction: column; gap: 10px; padding-bottom: 50%; position: relative; }
+
+/* Şarkı sözleri kaydırma alanı - esneme payı için sağ boşluk eklendi */
+.lyrics-content { 
+  max-height: 40vh; 
+  overflow-y: auto; 
+  scroll-behavior: smooth; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 12px; 
+  padding-bottom: 50%; 
+  position: relative; 
+  padding-right: 30px; /* Sağa büyüyen kelimelerin kırpılmasını engeller */
+  padding-left: 5px;   /* Sol kenar dengesi */
+}
 .lyrics-card.expanded .lyrics-content { max-height: 100%; flex: 1; }
 .lyrics-content::-webkit-scrollbar { display: none; }
 .lyrics-content { scrollbar-width: none; }
 
-.lyric-line { font-size: 22px; font-weight: 700; color: rgba(255,255,255,0.3); cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; line-height: 1.4; padding: 6px 0; transform-origin: left center; will-change: transform, color; }
+/* Kelimelerin esnerken kırpılmasını önlemek için max-width ve display güncellendi */
+.lyric-line { 
+  font-size: 22px; 
+  font-weight: 700; 
+  color: rgba(255,255,255,0.3); 
+  cursor: pointer; 
+  transition: color 0.2s ease, transform 0.2s ease; 
+  line-height: 1.4; 
+  padding: 6px 0; 
+  transform-origin: left center; 
+  will-change: transform, color; 
+  display: inline-block; /* Genişliğin tüm satırı kaplayıp taşmasını önler */
+  max-width: 90%;       /* Kelimelerin sağ sınıra dayanarak kırpılmasını önler */
+}
 .lyric-line:hover { color: rgba(255,255,255,0.7); }
-.lyric-line.active { color: white; transform: scale(1.15); text-shadow: 0 0 10px rgba(255, 255, 255, 0.2); }
+
+/* Aktif kelime büyüme çarpanı kırpılmayı engellemek için 1.1'e dengelendi */
+.lyric-line.active { 
+  color: white; 
+  transform: scale(1.1); /* 1.15'ten 1.1'e düşürülerek kırpılma riski minimize edildi */
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2); 
+}
 .lyrics-placeholder { text-align: center; color: rgba(255,255,255,0.4); font-size: 16px; margin: 30px 0; }
 
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 9999; display: flex; justify-content: center; align-items: center; }
@@ -155,8 +186,22 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .add-playlist-btn { background: rgba(255,255,255,0.1); border-radius: 50%; padding: 8px; }
 .add-playlist-btn:hover { background: var(--accent); }
 .home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px; }
-.home-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; cursor: pointer; transition: 0.3s; text-align: center; border: 1px solid transparent; }
-.home-card:hover { background: rgba(255,255,255,0.1); transform: translateY(-5px); border-color: rgba(255,255,255,0.2); }
+
+/* Kart Hover ve geçiş süreleri daha pürüzsüz ve estetik hale getirildi */
+.home-card { 
+  background: rgba(255,255,255,0.03); 
+  padding: 15px; 
+  border-radius: 8px; 
+  cursor: pointer; 
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background-color 0.3s ease, border-color 0.3s ease; 
+  text-align: center; 
+  border: 1px solid rgba(255,255,255,0.05); 
+}
+.home-card:hover { 
+  background: rgba(255,255,255,0.08); 
+  transform: translateY(-4px); 
+  border-color: rgba(255,255,255,0.15); 
+}
 .card-thumb-wrapper { position: relative; width: 100%; aspect-ratio: 1; margin-bottom: 15px; border-radius: 6px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
 .card-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: white; }
 .card-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
@@ -177,7 +222,19 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .back-btn-container:hover { color: white; transform: translateX(-5px); }
 .playlist-header-large { margin-bottom: 25px; }
 .title-container { display: flex; align-items: center; gap: 15px; }
-.playlist-huge-title { font-size: 48px; font-weight: 900; line-height: 1.1; color: white; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Büyük listeler için başlık boyutu ekran boyutuna göre otomatik ölçeklenir hale getirildi (Clamp) */
+.playlist-huge-title { 
+  font-size: clamp(1.75rem, 5vw, 3rem); /* Mobilde daha küçük, PC'de daha büyük akıcı font */
+  font-weight: 900; 
+  line-height: 1.1; 
+  color: white; 
+  word-break: break-word; 
+  display: -webkit-box; 
+  -webkit-line-clamp: 2; 
+  -webkit-box-orient: vertical; 
+  overflow: hidden; 
+}
 .playlist-info-text { color: var(--text-muted); font-size: 14px; font-weight: 500; margin-top: 10px; }
 .edit-name-container { display: flex; align-items: center; gap: 10px; }
 .edit-name-input { background: transparent; border: none; border-bottom: 2px solid var(--accent); color: white; font-size: 40px; font-weight: 900; outline: none; width: 100%; max-width: 400px; padding-bottom: 5px; }
@@ -301,3 +358,30 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .sidebar-playlist-item:hover { background-color: var(--bg-hover) !important; }
 .sidebar-playlists-dropdown::-webkit-scrollbar { width: 4px; }
 .sidebar-playlists-dropdown::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+
+/* PREMIUM: AKILLI KAYAN YAZI (MARQUEE) ANIMASYONU */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  15% { transform: translateX(0); } /* Başlangıçta 1.5 saniye bekle (Premium hissi) */
+  50% { transform: translateX(var(--marquee-dist)); } /* Sona doğru kay */
+  65% { transform: translateX(var(--marquee-dist)); } /* Sonda 1.5 saniye bekle */
+  95% { transform: translateX(0); } /* Yumuşakça başa geri kay */
+  100% { transform: translateX(0); }
+}
+
+.marquee-container {
+  overflow: hidden;
+  white-space: nowrap;
+  width: 100%;
+  position: relative;
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.marquee-active {
+  animation: marquee var(--marquee-duration, 8s) ease-in-out infinite;
+}

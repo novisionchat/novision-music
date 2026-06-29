@@ -9,6 +9,70 @@ import {
 import YouTubeEngine from './YouTubeEngine';
 import toast from 'react-hot-toast';
 
+// PREMIUM: Ekran Boyutu Değişimlerini Anlık Takip Eden Dinamik Marquee Bileşeni
+const MarqueeText = ({ text, style }) => {
+  const containerRef = useRef(null);
+  const textRef = useRef(null);
+  const [isMarquee, setIsMarquee] = useState(false);
+  const [dist, setDist] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const textEl = textRef.current;
+    if (!container || !textEl) return;
+
+    const updateMarquee = () => {
+      setIsMarquee(false);
+      
+      requestAnimationFrame(() => {
+        const overflowDist = textEl.scrollWidth - container.clientWidth;
+        if (overflowDist > 0) {
+          setDist(-overflowDist - 20); // 20px estetik boşluk
+          setIsMarquee(true);
+        } else {
+          setDist(0);
+          setIsMarquee(false);
+        }
+      });
+    };
+
+    // Ekran genişliği her değiştiğinde (Resize, Fullscreen vb.) anlık tetiklenir
+    const observer = new ResizeObserver(() => {
+      updateMarquee();
+    });
+    
+    observer.observe(container);
+    updateMarquee(); // İlk yüklemede çalıştır
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [text]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className="marquee-container" 
+      style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: '100%' }}
+    >
+      <span
+        ref={textRef}
+        className={isMarquee ? "marquee-text marquee-active" : "marquee-text"}
+        style={{
+          ...style,
+          display: 'inline-block',
+          whiteSpace: 'nowrap',
+          willChange: 'transform',
+          '--marquee-dist': `${dist}px`,
+          '--marquee-duration': `${Math.max(6, Math.abs(dist) / 12)}s` // DÜZELTME: Sürükleme hızı yarı yarıya yavaşlatıldı (Bölen 12'ye düşürüldü)
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+};
+
 const formatTime = (time) => {
   if (!time || isNaN(time)) return "0:00";
   const minutes = Math.floor(time / 60);
@@ -29,7 +93,77 @@ const NowPlayingPanel = () => {
   
   const lyricsContainerRef = useRef(null);
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
+  const [imgSrc, setImgSrc] = useState('');
+  const [ambientColors, setAmbientColors] = useState(['#FF2A54', '#8b0021']);
+  const [touchStart, setTouchStart] = useState(null);
 
+  // Hook 1: Şarkı değiştiğinde görsel kaynağını belirleme
+  useEffect(() => {
+    if (!currentSong) return;
+
+    const localData = downloadedSongs[currentSong.id];
+    if (localData?.localThumbUrl) {
+      setImgSrc(localData.localThumbUrl);
+    } else {
+      setImgSrc(`https://i.ytimg.com/vi/${currentSong.id}/maxresdefault.jpg`);
+    }
+  }, [currentSong, downloadedSongs]);
+
+  // Hook 2: HTML5 Canvas API ile dinamik ambient arka plan hesaplama
+  useEffect(() => {
+    if (!imgSrc) return;
+
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.src = imgSrc;
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 10;
+        canvas.height = 10;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, 10, 10);
+        const data = ctx.getImageData(0, 0, 10, 10).data;
+        
+        let colors = [];
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i+1];
+          const b = data[i+2];
+          const a = data[i+3];
+          if (a < 200) continue;
+          
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          if (brightness < 40 || brightness > 220) continue; 
+          
+          colors.push({ r, g, b, sat: Math.max(r, g, b) - Math.min(r, g, b) });
+        }
+        
+        colors.sort((a, b) => b.sat - a.sat);
+        
+        if (colors.length >= 2) {
+          setAmbientColors([
+            `rgb(${colors[0].r}, ${colors[0].g}, ${colors[0].b})`,
+            `rgb(${colors[1].r}, ${colors[1].g}, ${colors[1].b})`
+          ]);
+        } else if (colors.length === 1) {
+          setAmbientColors([
+            `rgb(${colors[0].r}, ${colors[0].g}, ${colors[0].b})`,
+            'rgba(18,18,18,0.9)'
+          ]);
+        } else {
+          setAmbientColors(['#FF2A54', '#8b0021']);
+        }
+      } catch (err) {
+        setAmbientColors(['#FF2A54', '#8b0021']);
+      }
+    };
+    img.onerror = () => {
+      setAmbientColors(['#FF2A54', '#8b0021']);
+    };
+  }, [imgSrc]);
+
+  // Şarkı sözü index hesaplama (Düz JS)
   const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
   
   const activeLyricIndex = safeLyrics.findIndex((l, i) => { 
@@ -37,6 +171,7 @@ const NowPlayingPanel = () => {
     return currentTime >= l.time && currentTime < nextTime; 
   });
 
+  // Hook 3: Şarkı sözlerini otomatik dikey kaydırma
   useEffect(() => {
     if (activeLyricIndex !== -1 && lyricsContainerRef.current) {
       const container = lyricsContainerRef.current;
@@ -48,32 +183,67 @@ const NowPlayingPanel = () => {
     }
   }, [activeLyricIndex, isLyricsExpanded]); 
 
+  // ERKEN DÖNÜŞ (Tüm Hook'lardan sonra gelmelidir)
   if (!currentSong) return null;
+
+  // Render Değişkenleri
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const isLiked = currentSong ? likedSongs.some(s => s.id === currentSong.id) : false;
+  const localData = downloadedSongs[currentSong.id];
+  const isDownloaded = !!localData;
+  const isDownloading = downloadQueue.includes(currentSong.id);
+  const progress = downloadProgress[currentSong.id] || 0;
+
+  // Olay Dinleyicileri
+  const handleImageError = () => {
+    const fallbackUrl = currentSong?.thumbnail || '/icon.png';
+    if (imgSrc !== fallbackUrl) {
+      const cleanFallback = fallbackUrl
+        .replace('hqdefault.jpg', 'mqdefault.jpg')
+        .replace('sddefault.jpg', 'mqdefault.jpg');
+      setImgSrc(cleanFallback);
+    }
+  };
 
   const handleShare = () => {
     navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${currentSong.id}`);
     toast.success("Şarkı bağlantısı kopyalandı!");
   };
 
-  const localData = downloadedSongs[currentSong.id];
-  
-  // FOTOĞRAF DÜZELTMESİ
-  const displayThumb = (localData?.localThumbUrl || currentSong.thumbnail || '')
-                       .replace('hqdefault.jpg', 'mqdefault.jpg')
-                       .replace('sddefault.jpg', 'mqdefault.jpg');
-  
-  const isDownloaded = !!localData;
-  const isDownloading = downloadQueue.includes(currentSong.id);
-  const progress = downloadProgress[currentSong.id] || 0;
+  // Sadece header alanından sürüklemeyi tetikleyen dokunmatik olaylar
+  const handleTouchStart = (e) => {
+    setTouchStart(e.targetTouches[0].clientY);
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchStart === null) return;
+    const touchEnd = e.changedTouches[0].clientY;
+    const diff = touchStart - touchEnd;
+
+    if (diff < -50) {
+      e.stopPropagation();
+      closePanel();
+    }
+    setTouchStart(null);
+  };
 
   return (
     <aside className={`now-playing-panel ${isPanelOpen ? 'open' : ''} ${isPanelFullscreen ? 'fullscreen' : ''}`}>
-      <div className="ambient-bg" style={{ backgroundImage: `url(${displayThumb})` }}></div>
+      <div 
+        className="ambient-bg" 
+        style={{ 
+          backgroundImage: `radial-gradient(circle, ${ambientColors[0]} 0%, ${ambientColors[1]} 100%)`,
+          transition: 'background-image 0.8s ease-in-out'
+        }}
+      ></div>
       <div className="ambient-overlay"></div>
       
-      <div className="panel-header">
+      {/* Swipe Down algılayıcıları artık YALNIZCA bu header alanına kısıtlanmıştır */}
+      <div 
+        className="panel-header"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <button className="icon-btn close-panel-btn" onClick={closePanel} title="Kapat">
           <MdExpandMore size={32} color="white" />
         </button>
@@ -92,22 +262,28 @@ const NowPlayingPanel = () => {
       <div className="panel-scroll-area">
         <div className={`panel-artwork-container ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
           <YouTubeEngine />
-          <img src={displayThumb} alt="cover" className="panel-artwork" style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} />
+          <img 
+            src={imgSrc || '/icon.png'} 
+            alt="cover" 
+            className="panel-artwork" 
+            onError={handleImageError}
+            style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} 
+          />
         </div>
 
         <div className={`panel-info ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, paddingRight: '15px' }}>
-              <h2 className="panel-title">{currentSong.title}</h2>
-              <p className="panel-artist" 
-                 onClick={() => { closePanel(); navigate(`/artist/${encodeURIComponent(currentSong.channel)}`); }} 
-                 style={{ cursor: 'pointer', display: 'inline-block', transition: '0.2s' }}
-                 onMouseOver={(e) => e.target.style.color = "white"}
-                 onMouseOut={(e) => e.target.style.color = "rgba(255,255,255,0.7)"}
+            <div style={{ flex: 1, paddingRight: '15px', overflow: 'hidden' }}>
+              <MarqueeText text={currentSong.title} style={{ fontSize: '22px', fontWeight: 'bold', color: 'white', marginBottom: '4px' }} />
+              
+              <div 
+                style={{ cursor: 'pointer', display: 'inline-block', width: '100%' }} 
+                onClick={() => { closePanel(); navigate(`/artist/${encodeURIComponent(currentSong.channel)}`); }}
               >
-                {currentSong.channel}
-              </p>
+                <MarqueeText text={currentSong.channel} style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)' }} />
+              </div>
             </div>
+            
             <button className="icon-btn" onClick={() => toggleLike(currentSong)} style={{ marginTop: '5px' }}>
               {isLiked ? <MdFavorite size={28} color="var(--accent)" /> : <MdFavoriteBorder size={28} color="var(--text-muted)" />}
             </button>
@@ -174,7 +350,10 @@ const NowPlayingPanel = () => {
           </div>
         )}
 
-        <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`}>
+        <div 
+          className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`}
+          onTouchStart={(e) => e.stopPropagation()} 
+        >
           <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Sözler</span>
             <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>{isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}</button>

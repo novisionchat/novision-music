@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
@@ -11,6 +11,70 @@ import useAuthStore from '../store/useAuthStore';
 import usePlayerStore from '../store/usePlayerStore';
 import { getTrendings } from '../utils/youtubeApi';
 import toast from 'react-hot-toast';
+
+const MarqueeText = ({ text, style }) => {
+  const containerRef = useRef(null);
+  const textRef = useRef(null);
+  const [isMarquee, setIsMarquee] = useState(false);
+  const [dist, setDist] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const textEl = textRef.current;
+    if (!container || !textEl) return;
+
+    setIsMarquee(false);
+
+    const updateMarquee = () => {
+      setIsMarquee(false);
+      
+      requestAnimationFrame(() => {
+        const overflowDist = textEl.scrollWidth - container.clientWidth;
+        if (overflowDist > 0) {
+          setDist(-overflowDist - 20); 
+          setIsMarquee(true);
+        } else {
+          setDist(0);
+          setIsMarquee(false);
+        }
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      updateMarquee();
+    });
+    
+    observer.observe(container);
+    updateMarquee();
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [text]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className="marquee-container" 
+      style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: '100%' }}
+    >
+      <span
+        ref={textRef}
+        className={isMarquee ? "marquee-text marquee-active" : "marquee-text"}
+        style={{
+          ...style,
+          display: 'inline-block',
+          whiteSpace: 'nowrap',
+          willChange: 'transform',
+          '--marquee-dist': `${dist}px`,
+          '--marquee-duration': `${Math.max(6, Math.abs(dist) / 12)}s`
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+};
 
 const PlaylistDetail = () => {
   const { id } = useParams();
@@ -31,8 +95,8 @@ const PlaylistDetail = () => {
   const updateLocalPlaylistSongs = usePlayerStore(s => s.updateLocalPlaylistSongs);
   const updateLocalPlaylistName = usePlayerStore(s => s.updateLocalPlaylistName);
   const likedSongs = usePlayerStore(s => s.likedSongs);
+  const isOfflineMode = usePlayerStore(s => s.isOfflineMode);
   
-  // DÜZELTME: Oynatma zamanını güncelleme fonksiyonu çağırıldı
   const updatePlaylistLastPlayed = usePlayerStore(s => s.updatePlaylistLastPlayed);
   
   const [playlist, setPlaylist] = useState(null);
@@ -156,7 +220,6 @@ const PlaylistDetail = () => {
     const newSongs = [...songs]; newSongs.splice(index, 1); setSongs(newSongs);
   };
 
-  // DÜZELTME: "Hepsini Oynat" butonuna basınca playlist tarihi güncelleniyor!
   const handlePlayAll = async () => {
     if (songs.length === 0) return toast.error("Liste boş!");
     const startIndex = isShuffle ? Math.floor(Math.random() * songs.length) : 0;
@@ -169,7 +232,6 @@ const PlaylistDetail = () => {
     }
   };
 
-  // DÜZELTME: Şarkıya basarak oynatma başladığında da çalma listesinin son çalınma zamanı güncelleniyor!
   const handlePlaySong = (song, index) => {
     playSong(song, displaySongs, index);
     updatePlaylistLastPlayed(id, isLocal, user);
@@ -312,9 +374,12 @@ const PlaylistDetail = () => {
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
 
-                    const rowThumb = (downloadedSongs[song.id]?.localThumbUrl || song.thumbnail || '')
-                                     .replace('hqdefault.jpg', 'mqdefault.jpg')
-                                     .replace('sddefault.jpg', 'mqdefault.jpg');
+                    // DÜZELTME: Çevrimiçiyken her zaman canlı YouTube görseli gösterilir; çevrimdışıyken yerel görsel çağrılır.
+                    const rowThumb = (isOfflineMode && downloadedSongs[song.id]?.localThumbUrl)
+                                     ? downloadedSongs[song.id].localThumbUrl
+                                     : (song.thumbnail || '')
+                                       .replace('hqdefault.jpg', 'mqdefault.jpg')
+                                       .replace('sddefault.jpg', 'mqdefault.jpg');
                     
                     const isCurrentPlaying = currentSong?.id === song.id;
 
@@ -326,18 +391,23 @@ const PlaylistDetail = () => {
                             
                             {isDownloadMode && <input type="checkbox" checked={selectedSongs.includes(song.id)} onChange={() => toggleSelectSong(song.id)} disabled={isSongDownloaded} style={{ width: '20px', height: '20px', marginRight: '15px', cursor: isSongDownloaded ? 'not-allowed' : 'pointer', accentColor: 'var(--accent)' }} />}
 
-                            {/* DÜZELTME: Şarkı çalma fonksiyonu handlePlaySong ile bağlandı */}
                             <div className="song-thumb-container" onClick={() => !isEditMode && !isDownloadMode && handlePlaySong(song, displayIndex)}>
                               <img src={rowThumb} alt={song.title} className="song-thumb" />
                               {!isEditMode && !isDownloadMode && <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>}
                             </div>
 
                             <div className="song-info" onClick={() => !isEditMode && !isDownloadMode && handlePlaySong(song, displayIndex)}>
-                              <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ color: isCurrentPlaying ? 'var(--accent)' : 'white' }}>{song.title}</span>
-                                {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px' }}>Çevrimdışı</span>}
-                                {isSongDownloading && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px' }}>İniyor...</span>}
-                                {isSongInWaitQueue && <span style={{ fontSize: '10px', color: 'gray' }}>Sırada</span>}
+                              <div className="song-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', width: '100%' }}>
+                                <div style={{ flex: 1, overflow: 'hidden' }}>
+                                  {isCurrentPlaying ? (
+                                    <MarqueeText text={song.title} style={{ color: 'var(--accent)', fontWeight: '600' }} />
+                                  ) : (
+                                    <span style={{ color: 'white' }}>{song.title}</span>
+                                  )}
+                                </div>
+                                {isSongDownloaded && <span style={{ fontSize: '10px', background: 'rgba(255,42,84,0.15)', color: 'var(--accent)', padding: '2px 6px', borderRadius: '50px', flexShrink: 0 }}>Çevrimdışı</span>}
+                                {isSongDownloading && <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', color: 'white', padding: '2px 6px', borderRadius: '50px', flexShrink: 0 }}>İniyor...</span>}
+                                {isSongInWaitQueue && <span style={{ fontSize: '10px', color: 'gray', flexShrink: 0 }}>Sırada</span>}
                               </div>
                               <div className="song-channel">{song.channel}</div>
                             </div>
