@@ -9,7 +9,7 @@ import {
 import YouTubeEngine from './YouTubeEngine';
 import toast from 'react-hot-toast';
 
-// ÖNBELLEKLENMİŞ MARQUEE BİLEŞENİ
+// PREMIUM: Ekran Boyutu Değişimlerini Anlık Takip Eden Dinamik Marquee Bileşeni
 const MarqueeText = React.memo(({ text, style }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
@@ -68,7 +68,7 @@ const formatTime = (time) => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
-// PANEL PROGRESS ALT BİLEŞENİ
+// PANEL PROGRESS ALT BİLEŞENİ (Saniyede bir render'ı hapseder)
 const PanelProgress = () => {
   const currentTime = usePlayerStore(s => s.currentTime);
   const duration = usePlayerStore(s => s.duration);
@@ -77,7 +77,7 @@ const PanelProgress = () => {
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="progress-container panel-progress">
+    <div className="progress-container panel-progress" onClick={(e) => e.stopPropagation()}>
       <span className="time-text">{formatTime(currentTime)}</span>
       <div className="seek-bar-wrapper">
         <input 
@@ -95,12 +95,18 @@ const PanelProgress = () => {
   );
 };
 
-// SÖZLER ALANI ALT BİLEŞENİ (Saniyede bir scroll hesaplamasının ana bileşeni kasmasını engeller)
+// SÖZLER ALANI ALT BİLEŞENİ (Genişletilmiş modda Spotify tarzı player kontrolleri barındırır)
 const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
   const lyrics = usePlayerStore(s => s.lyrics);
   const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
   const currentTime = usePlayerStore(s => s.currentTime);
   const seekTo = usePlayerStore(s => s.seekTo);
+
+  // Spotify-Style Kontrolcü Store Bağlantıları
+  const playNext = usePlayerStore(s => s.playNext);
+  const playPrev = usePlayerStore(s => s.playPrev);
+  const togglePlay = usePlayerStore(s => s.togglePlay);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
 
   const lyricsContainerRef = useRef(null);
 
@@ -146,6 +152,20 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
           <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>
         )}
       </div>
+
+      {/* SPOTIFY STİLİ GENİŞLETİLMİŞ SÖZLER ALTI PLAYER KONTROLLERİ */}
+      {isLyricsExpanded && (
+        <div className="lyrics-expanded-controls">
+          <PanelProgress />
+          <div className="lyrics-expanded-buttons">
+            <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={32} color="white" /></button>
+            <button className="play-pause-btn" onClick={togglePlay} style={{ width: '48px', height: '48px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer' }}>
+              {isPlaying ? <MdPause size={30} color="black" /> : <MdPlayArrow size={30} color="black" />}
+            </button>
+            <button className="icon-btn" onClick={playNext}><MdSkipNext size={32} color="white" /></button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -289,18 +309,13 @@ const NowPlayingPanel = () => {
 
   return (
     <aside className={`now-playing-panel ${isPanelOpen ? 'open' : ''} ${isPanelFullscreen ? 'fullscreen' : ''}`}>
-      <div 
-        className="ambient-bg" 
-        style={{ 
-          backgroundImage: `
-            radial-gradient(circle at 0% 0%, ${ambientColors[0]} 0%, transparent 50%),
-            radial-gradient(circle at 100% 0%, ${ambientColors[1]} 0%, transparent 50%),
-            radial-gradient(circle at 100% 100%, ${ambientColors[2]} 0%, transparent 50%),
-            radial-gradient(circle at 0% 100%, ${ambientColors[3]} 0%, transparent 50%),
-            radial-gradient(circle at 50% 50%, ${ambientColors[0]} 0%, ${ambientColors[1]} 100%)
-          `
-        }}
-      ></div>
+      {/* SIFIR YENİDEN BOYAMA (ZERO REPAINT) GPU DOSTU ARKA PLAN */}
+      <div className="ambient-bg">
+        <div className="ambient-blob color-1" style={{ backgroundColor: ambientColors[0] }}></div>
+        <div className="ambient-blob color-2" style={{ backgroundColor: ambientColors[1] }}></div>
+        <div className="ambient-blob color-3" style={{ backgroundColor: ambientColors[2] }}></div>
+        <div className="ambient-blob color-4" style={{ backgroundColor: ambientColors[3] }}></div>
+      </div>
       <div className="ambient-overlay"></div>
       
       <div className="panel-header" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
