@@ -41,6 +41,12 @@ function AppContent() {
     initAuth(); 
     initOfflineStorage();
 
+    // YENİLİK: Mobilde ve Webde görsellere uzun basınca çıkan "Resmi Kaydet/Kopyala" menüsünü engeller
+    const preventLongPressMenu = (e) => {
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', preventLongPressMenu);
+
     if (window.Capacitor) {
       LocalNotifications.requestPermissions().then((res) => {
         console.log("Native bildirim izni sonucu:", res);
@@ -66,6 +72,7 @@ function AppContent() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('contextmenu', preventLongPressMenu); // Temizlik
     };
   }, []);
 

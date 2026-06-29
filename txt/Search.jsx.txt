@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MdSearch, MdPlayArrow, MdPlaylistAdd, MdClose } from 'react-icons/md';
+import { MdSearch, MdPlayArrow, MdPlaylistAdd, MdClose, MdSync } from 'react-icons/md';
 import usePlayerStore from '../store/usePlayerStore';
 import useAuthStore from '../store/useAuthStore';
 import { db } from '../firebase';
 import { ref, get, set } from 'firebase/database';
-import { getArtistProfile } from '../utils/youtubeApi';
 
 const Search = () => {
   const user = useAuthStore(s => s.user);
@@ -17,7 +16,6 @@ const Search = () => {
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
-  const [artistResult, setArtistResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
   
@@ -59,14 +57,12 @@ const Search = () => {
     }
 
     setLoading(true); setQuery(q);
-    setArtistResult(null);
 
     if (!directQuery || typeof directQuery === 'string') {
       saveToHistory(q);
     }
 
     try {
-      getArtistProfile(q).then(artist => setArtistResult(artist)).catch(() => {});
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       setResults(data);
@@ -95,7 +91,7 @@ const Search = () => {
       
       <form onSubmit={handleSearch} className="search-bar-container">
         <MdSearch size={24} className="search-icon" />
-        <input type="text" className="search-input" placeholder="Şarkı, sanatçı veya çalma listesi linki yapıştır..." value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input type="text" className="search-input" placeholder="Şarkı veya çalma listesi linki yapıştır..." value={query} onChange={(e) => setQuery(e.target.value)} />
       </form>
 
       {results.length === 0 && !loading && recentSearches.length > 0 && (
@@ -117,35 +113,34 @@ const Search = () => {
       )}
 
       <div className="search-results">
-        {loading && <div className="loading-container"><span className="material-icons loading-spinner">sync</span><p>Aranıyor...</p></div>}
+        {/* YENİLİK BURADA: Sadece SVG İkonu dönüyor, yazı tipi gecikme hatası önlendi */}
+        {loading && (
+          <div className="loading-container">
+            <MdSync className="loading-spinner" size={40} color="var(--text-muted)" />
+            <p>Aranıyor...</p>
+          </div>
+        )}
 
-        {!loading && (artistResult || results.length > 0) && (
+        {!loading && results.length > 0 && (
           <div className="song-list">
-            
-            {artistResult && (
-              <div className="artist-result-card" onClick={() => handleArtistClick(artistResult)} style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: 'var(--bg-hover)', borderRadius: '12px', cursor: 'pointer', marginBottom: '20px', border: '1px solid var(--border)', transition: '0.2s' }}>
-                {/* DÜZELTME: referrerPolicy="no-referrer" eklendi */}
-                <img src={artistResult.thumbnail} alt={artistResult.name} referrerPolicy="no-referrer" style={{ width: '70px', height: '70px', borderRadius: '50%', objectFit: 'cover' }} />
-                <div>
-                   <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'white' }}>{artistResult.name}</div>
-                   <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Sanatçı</div>
+            {results.map((song, index) => {
+              // Arama sonuçlarındaki fotoğrafların siyah barlarını silmek için mqdefault düzeltmesi eklendi
+              const displayThumb = (song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
+              
+              return (
+                <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, results, index)}>
+                  <div className="song-thumb-container">
+                    <img src={displayThumb} alt={song.title} className="song-thumb" />
+                    <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
+                  </div>
+                  <div className="song-info">
+                    <div className="song-title">{song.title}</div>
+                    <div className="song-channel">{song.channel}</div>
+                  </div>
+                  <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={28} /></button>
                 </div>
-              </div>
-            )}
-
-            {results.map((song, index) => (
-              <div key={song.id} className={`song-row ${currentSong?.id === song.id ? 'active' : ''}`} onClick={() => playSong(song, results, index)}>
-                <div className="song-thumb-container">
-                  <img src={song.thumbnail} alt={song.title} className="song-thumb" />
-                  <div className="play-overlay"><MdPlayArrow size={24} color="white" /></div>
-                </div>
-                <div className="song-info">
-                  <div className="song-title">{song.title}</div>
-                  <div className="song-channel">{song.channel}</div>
-                </div>
-                <button className="icon-btn" style={{ marginLeft: 'auto', padding: '10px' }} onClick={(e) => { e.stopPropagation(); openAddModal(song); }}><MdPlaylistAdd size={28} /></button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

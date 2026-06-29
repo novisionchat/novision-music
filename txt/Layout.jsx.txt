@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { MdHomeFilled, MdSearch, MdLibraryMusic, MdExpandMore, MdMenu } from 'react-icons/md';
+import { MdHomeFilled, MdSearch, MdLibraryMusic, MdExpandMore, MdMenu, MdFavorite } from 'react-icons/md';
 import YouTubeEngine from './YouTubeEngine';
 import PlayerBar from './PlayerBar';
 import NowPlayingPanel from './NowPlayingPanel';
@@ -17,14 +17,11 @@ const Layout = () => {
 
   const [playlists, setPlaylists] = useState([]);
   
-  // Sol panel katlanma durumunu localStorage'dan oku
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
     localStorage.getItem('sidebar_collapsed') === 'true'
   );
-  // Kitaplık dropdown açık/kapalı durumu
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
 
-  // Bulut listelerini çek
   useEffect(() => {
     if (!user || !navigator.onLine) {
       setPlaylists([]);
@@ -48,27 +45,29 @@ const Layout = () => {
     localStorage.setItem('sidebar_collapsed', nextState);
   };
 
-  // Yan panelde listelenecek tüm çalma listelerini birleştir
+  // DÜZELTME: Dinamik çalma listeleri (Yerel + Bulut) son oynatma tarihine göre büyükten küçüğe sıralanıyor!
+  const dynamicPlaylists = [...localPlaylists, ...playlists].sort((a, b) => {
+    const ta = a.lastPlayed || 0;
+    const tb = b.lastPlayed || 0;
+    return tb - ta;
+  });
+
   const sidebarPlaylists = [
     { id: 'liked', name: 'Beğenilen Şarkılar', songs: likedSongs, isStatic: true },
-    ...localPlaylists,
-    ...playlists
+    ...dynamicPlaylists
   ];
 
   return (
     <div className="layout-container">
-      {/* SOL MENÜ (PC & TABLET) */}
       <aside 
         className="sidebar-desktop" 
         style={{ 
           width: isSidebarCollapsed ? '80px' : '260px', 
-          transition: 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s',
           padding: isSidebarCollapsed ? '20px 10px' : '20px 15px'
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <div>
-            {/* DÜZELTME: Logo Alanı & Üst Kısımdaki Üç Çizgi Aç/Kapa Butonu */}
             <div 
               className="logo-area" 
               style={{ 
@@ -83,12 +82,7 @@ const Layout = () => {
                 <button 
                   className="icon-btn" 
                   onClick={toggleSidebar} 
-                  style={{ 
-                    padding: '5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
+                  style={{ padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   <MdMenu size={26} color="white" />
                 </button>
@@ -101,12 +95,7 @@ const Layout = () => {
                   <button 
                     className="icon-btn" 
                     onClick={toggleSidebar} 
-                    style={{ 
-                      padding: '5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
+                    style={{ padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     <MdMenu size={26} color="white" />
                   </button>
@@ -114,7 +103,6 @@ const Layout = () => {
               )}
             </div>
             
-            {/* Menü Navigasyon Linkleri */}
             <nav className="main-nav" style={{ marginTop: '30px' }}>
               <NavLink to="/" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'} style={{ justifyContent: isSidebarCollapsed ? 'center' : 'flex-start' }}>
                 <MdHomeFilled size={24} /> 
@@ -125,81 +113,45 @@ const Layout = () => {
                 {!isSidebarCollapsed && <span>Ara</span>}
               </NavLink>
               
-              {/* DÜZELTME: Kitaplık Butonu ve Üçgen Dropdown Tetikleyici Ayrımı */}
-              <div 
-                style={{ 
-                  position: 'relative', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  width: '100%',
-                  background: 'transparent'
-                }}
-              >
-                {/* Ana Buton: Sadece yönlendirme yapar */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%', background: 'transparent' }}>
                 <NavLink 
                   to="/library" 
                   className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'} 
                   style={{ 
                     justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
                     flexGrow: 1,
-                    paddingRight: isSidebarCollapsed ? '0px' : '40px',
-                    width: '100%'
+                    width: '100%',
+                    paddingRight: !isSidebarCollapsed && sidebarPlaylists.length > 0 ? '40px' : undefined
                   }}
                 >
                   <MdLibraryMusic size={24} />
                   {!isSidebarCollapsed && <span>Kitaplık</span>}
                 </NavLink>
 
-                {/* Sadece Üçgen (Expand) Butonu: Alt listeyi açar/kapatır */}
                 {(!isSidebarCollapsed && sidebarPlaylists.length > 0) && (
                   <button 
                     className="icon-btn" 
-                    style={{ 
-                      position: 'absolute', 
-                      right: '10px', 
-                      top: '50%', 
-                      transform: 'translateY(-50%)',
-                      zIndex: 10,
-                      padding: '6px'
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation(); // Yönlendirmeyi engeller
-                      setIsLibraryOpen(!isLibraryOpen);
-                    }}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, padding: '6px' }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsLibraryOpen(!isLibraryOpen); }}
                   >
-                    <MdExpandMore 
-                      size={22} 
-                      style={{ 
-                        transform: isLibraryOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                        transition: 'transform 0.2s',
-                        color: 'var(--text-muted)'
-                      }} 
-                    />
+                    <MdExpandMore size={22} style={{ transform: isLibraryOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--text-muted)' }} />
                   </button>
                 )}
               </div>
 
-              {/* Yan Panel Altındaki Yatay Çalma Listesi Görünümü */}
               {(!isSidebarCollapsed && isLibraryOpen) && (
                 <div 
                   className="sidebar-playlists-dropdown" 
-                  style={{ 
-                    maxHeight: '40vh', 
-                    overflowY: 'auto', 
-                    marginTop: '10px', 
-                    paddingLeft: '10px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px'
-                  }}
+                  style={{ maxHeight: '40vh', overflowY: 'auto', marginTop: '10px', paddingLeft: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}
                 >
                   {sidebarPlaylists.map(pl => {
                     let thumb = '/icon.png';
                     if (pl.id === 'liked') {
                       thumb = 'gradient';
                     } else if (pl.songs && pl.songs.length > 0) {
-                      thumb = pl.songs[0].thumbnail;
+                      thumb = (pl.songs[0].thumbnail || '')
+                              .replace('hqdefault.jpg', 'mqdefault.jpg')
+                              .replace('sddefault.jpg', 'mqdefault.jpg');
                     }
 
                     return (
@@ -207,22 +159,16 @@ const Layout = () => {
                         key={pl.id} 
                         className="sidebar-playlist-item"
                         onClick={() => navigate(`/playlist/${pl.id}`)}
-                        style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '10px', 
-                          padding: '6px 8px', 
-                          borderRadius: '6px', 
-                          cursor: 'pointer',
-                          transition: 'background 0.2s'
-                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
                       >
                         {thumb === 'gradient' ? (
                           <div style={{ width: '32px', height: '32px', borderRadius: '4px', background: 'linear-gradient(135deg, #FF2A54, #8b0021)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
-                            <MdHomeFilled size={16} color="white" />
+                            <MdFavorite size={16} color="white" />
                           </div>
                         ) : (
-                          <img src={thumb} alt={pl.name} style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }} />
+                          <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden', flexShrink: 0 }}>
+                             <img src={thumb} alt={pl.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                           <span style={{ fontSize: '12px', fontWeight: '600', color: 'white', textOverflow: 'ellipsis', overflow: 'hidden' }}>{pl.name}</span>

@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MdPlayArrow, MdFavorite, MdTrendingUp, MdPublic } from 'react-icons/md';
+import { MdPlayArrow, MdFavorite, MdTrendingUp, MdPublic, MdMoreVert } from 'react-icons/md';
 import usePlayerStore from '../store/usePlayerStore';
 import useAuthStore from '../store/useAuthStore';
 import { db } from '../firebase';
 import { ref, onValue } from 'firebase/database';
 
 const Home = () => {
-  // ZUSTAND OPTİMİZASYONU: Gereksiz re-render'ları (kasmaları) engeller
   const playSong = usePlayerStore(s => s.playSong);
   const currentSong = usePlayerStore(s => s.currentSong);
   const likedSongs = usePlayerStore(s => s.likedSongs);
@@ -30,7 +29,6 @@ const Home = () => {
     <div className="home-page" style={{ maxWidth: '900px', margin: '0 auto' }}>
       <h1 className="page-title" style={{ marginBottom: '25px' }}>İyi Günler {profile ? profile.username : ''}</h1>
       
-      {/* --- DÜZELTME: Oynat Tuşu Olmayan Sadeleştirilmiş Yatay Şeritler --- */}
       <div 
         className="pinned-playlists-vertical" 
         style={{ 
@@ -41,20 +39,12 @@ const Home = () => {
         }}
       >
         
-        {/* 1. BEĞENİLEN ŞARKILAR ŞERİDİ */}
         <div 
           onClick={() => navigate('/playlist/liked')}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '15px',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.05)',
-            padding: '12px 18px',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            height: '74px'
+            display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.05)', padding: '12px 18px', borderRadius: '12px',
+            cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', height: '74px'
           }}
           onMouseOver={(e) => {
             e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
@@ -76,20 +66,12 @@ const Home = () => {
           </div>
         </div>
 
-        {/* 2. TÜRKİYE TRENDLERİ ŞERİDİ */}
         <div 
           onClick={() => navigate('/playlist/trend_tr')}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '15px',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.05)',
-            padding: '12px 18px',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            height: '74px'
+            display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.05)', padding: '12px 18px', borderRadius: '12px',
+            cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', height: '74px'
           }}
           onMouseOver={(e) => {
             e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
@@ -111,20 +93,12 @@ const Home = () => {
           </div>
         </div>
 
-        {/* 3. GLOBAL TRENDLER ŞERİDİ */}
         <div 
           onClick={() => navigate('/playlist/trend_global')}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '15px',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.05)',
-            padding: '12px 18px',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            height: '74px'
+            display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.05)', padding: '12px 18px', borderRadius: '12px',
+            cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', height: '74px'
           }}
           onMouseOver={(e) => {
             e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
@@ -148,24 +122,27 @@ const Home = () => {
 
       </div>
 
-      {/* YAKIN ZAMANDA ÇALINANLAR SEKMESİ */}
       <h3 style={{ fontSize: '20px', color: 'white', marginBottom: '15px', fontWeight: 'bold' }}>Yakın Zamanda Çalınanlar</h3>
       {recentSongs.length === 0 ? (
         <div style={{ color: 'gray' }}>Geçmişin boş. Müzik dinlemeye başla!</div>
       ) : (
         <div className="home-grid">
-          {recentSongs.map((song, index) => (
-            <div key={`${song.id}-${index}`} className="home-card" onClick={() => playSong(song, recentSongs, index)}>
-              <div className="card-thumb-wrapper">
-                <img src={song.thumbnail} alt={song.title} />
-                <div className="play-overlay" style={{ opacity: currentSong?.id === song.id ? 1 : '' }}>
-                  <MdPlayArrow size={28} color={currentSong?.id === song.id ? "var(--accent)" : "white"} />
+          {recentSongs.map((song, index) => {
+             // FOTOĞRAF DÜZELTMESİ EKLENDİ
+             const displayThumb = (song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
+             return (
+              <div key={`${song.id}-${index}`} className="home-card" onClick={() => playSong(song, recentSongs, index)}>
+                <div className="card-thumb-wrapper">
+                  <img src={displayThumb} alt={song.title} />
+                  <div className="play-overlay" style={{ opacity: currentSong?.id === song.id ? 1 : '' }}>
+                    <MdPlayArrow size={28} color={currentSong?.id === song.id ? "var(--accent)" : "white"} />
+                  </div>
                 </div>
+                <div className="card-title" style={{ color: currentSong?.id === song.id ? 'var(--accent)' : 'white' }}>{song.title}</div>
+                <div className="card-subtitle">{song.channel}</div>
               </div>
-              <div className="card-title" style={{ color: currentSong?.id === song.id ? 'var(--accent)' : 'white' }}>{song.title}</div>
-              <div className="card-subtitle">{song.channel}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

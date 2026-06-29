@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { auth, db } from '../firebase';
-import { ref, set as firebaseSet } from 'firebase/database';
+import { ref, set as firebaseSet, get as firebaseGet } from 'firebase/database';
 import localforage from 'localforage';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { AudioPlayer } from '@mediagrid/capacitor-native-audio';
@@ -196,12 +196,23 @@ const usePlayerStore = create((set, get) => ({
     } else { await localforage.setItem('local_playlists', newPlaylists); }
   },
   createLocalPlaylist: (name) => {
-    const newPlaylist = { id: `local_${Date.now()}`, name, songs: [] };
+    const newPlaylist = { id: `local_${Date.now()}`, name, songs: [], lastPlayed: 0 };
     get().saveLocalPlaylists([...get().localPlaylists, newPlaylist]);
   },
   updateLocalPlaylistSongs: (id, songs) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, songs } : pl)); },
   updateLocalPlaylistName: (id, name) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, name } : pl)); },
   deleteLocalPlaylist: (id) => { get().saveLocalPlaylists(get().localPlaylists.filter(pl => pl.id !== id)); },
+
+  // ÇALMA LİSTESİ SON OYNATMA ZAMANINI GÜNCELLEME SİSTEMİ
+  updatePlaylistLastPlayed: async (playlistId, isLocal, user) => {
+    const now = Date.now();
+    if (isLocal) {
+      const updated = get().localPlaylists.map(p => p.id === playlistId ? { ...p, lastPlayed: now } : p);
+      get().saveLocalPlaylists(updated);
+    } else if (user && navigator.onLine) {
+      await firebaseSet(ref(db, `users/${user.uid}/playlists/${playlistId}/lastPlayed`), now);
+    }
+  },
 
   addToDownloadQueueList: (songs) => {
     const state = get();
@@ -564,9 +575,14 @@ const usePlayerStore = create((set, get) => ({
 
     get().fetchLyrics(song);
 
+    // DÜZELTME: Mükerrer (aynı) şarkı dinlendiğinde geçmişte en sona (Home.jsx reverse ettiği için en başa) gidecek algoritma!
     if (auth.currentUser && navigator.onLine) {
-      const uniqueHistory = Array.from(new Set(newHistory.map(a => a?.id))).map(id => newHistory.find(a => a?.id === id)).filter(Boolean).slice(-25); 
-      firebaseSet(ref(db, `users/${auth.currentUser.uid}/recentSongs`), uniqueHistory);
+      const recentRef = ref(db, `users/${auth.currentUser.uid}/recentSongs`);
+      firebaseGet(recentRef).then((snap) => {
+        let currentRecent = snap.exists() ? snap.val() : [];
+        let updatedRecent = [...currentRecent.filter(s => s.id !== song.id), song].slice(-25);
+        firebaseSet(recentRef, updatedRecent);
+      });
     }
   },
 

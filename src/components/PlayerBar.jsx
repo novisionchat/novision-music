@@ -1,6 +1,75 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import usePlayerStore from '../store/usePlayerStore';
-import { MdPlayArrow, MdPause, MdSkipNext, MdSkipPrevious } from 'react-icons/md';
+import { 
+  MdPlayArrow, MdPause, MdSkipNext, MdSkipPrevious, 
+  MdShuffle, MdRepeat, MdFavorite, MdFavoriteBorder, 
+  MdPlaylistAdd, MdShare, MdVolumeUp, MdVolumeDown, MdVolumeOff 
+} from 'react-icons/md';
+import toast from 'react-hot-toast';
+
+const MarqueeText = ({ text, style }) => {
+  const containerRef = useRef(null);
+  const textRef = useRef(null);
+  const [isMarquee, setIsMarquee] = useState(false);
+  const [dist, setDist] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const textEl = textRef.current;
+    if (!container || !textEl) return;
+
+    setIsMarquee(false);
+
+    const updateMarquee = () => {
+      setIsMarquee(false);
+      
+      requestAnimationFrame(() => {
+        const overflowDist = textEl.scrollWidth - container.clientWidth;
+        if (overflowDist > 0) {
+          setDist(-overflowDist - 20); 
+          setIsMarquee(true);
+        } else {
+          setDist(0);
+          setIsMarquee(false);
+        }
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      updateMarquee();
+    });
+    
+    observer.observe(container);
+    updateMarquee(); 
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [text]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className="marquee-container" 
+      style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: '100%' }}
+    >
+      <span
+        ref={textRef}
+        className={isMarquee ? "marquee-text marquee-active" : "marquee-text"}
+        style={{
+          ...style,
+          display: 'inline-block',
+          whiteSpace: 'nowrap',
+          willChange: 'transform',
+          '--marquee-dist': `${dist}px`,
+          '--marquee-duration': `${Math.max(6, Math.abs(dist) / 12)}s` 
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+};
 
 const formatTime = (time) => {
   if (!time || isNaN(time)) return "0:00";
@@ -10,8 +79,15 @@ const formatTime = (time) => {
 };
 
 const PlayerBar = () => {
-  const { currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, togglePanel, playNext, playPrev, downloadedSongs, isPanelOpen } = usePlayerStore();
+  const { 
+    currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, 
+    togglePanel, playNext, playPrev, downloadedSongs, isPanelOpen,
+    isShuffle, isRepeat, toggleShuffle, toggleRepeat,
+    likedSongs, toggleLike, openAddModal, volume, setVolume, isOfflineMode 
+  } = usePlayerStore();
+
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [touchStart, setTouchStart] = useState(null);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -20,16 +96,43 @@ const PlayerBar = () => {
   }, []);
 
   if (!currentSong) return null;
-
   if (isMobile && isPanelOpen) return null;
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const localData = downloadedSongs[currentSong.id];
   
-  // FOTOĞRAF DÜZELTMESİ (Zoom iptali, siyah bar engeli)
-  const displayThumb = (localData?.localThumbUrl || currentSong.thumbnail || '')
-                       .replace('hqdefault.jpg', 'mqdefault.jpg')
-                       .replace('sddefault.jpg', 'mqdefault.jpg');
+  // DÜZELTME: Çevrimiçiyken her zaman canlı YouTube görseli gösterilir; çevrimdışıyken yerel görsel çağrılır.
+  const displayThumb = (isOfflineMode && localData?.localThumbUrl)
+                       ? localData.localThumbUrl
+                       : (currentSong.thumbnail || '/icon.png')
+                         .replace('hqdefault.jpg', 'mqdefault.jpg')
+                         .replace('sddefault.jpg', 'mqdefault.jpg');
+
+  const isLiked = currentSong ? likedSongs.some(s => s.id === currentSong.id) : false;
+
+  const handleShare = (e) => {
+    e.stopPropagation();
+    if (!currentSong) return;
+    navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${currentSong.id}`);
+    toast.success("Şarkı bağlantısı kopyalandı!");
+  };
+
+  const handleTouchStart = (e) => {
+    setTouchStart(e.targetTouches[0].clientY);
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchStart === null) return;
+    const touchEnd = e.changedTouches[0].clientY;
+    const diff = touchStart - touchEnd;
+
+    if (diff > 50) {
+      e.stopPropagation();
+      e.preventDefault();
+      togglePanel();
+    }
+    setTouchStart(null);
+  };
 
   if (isMobile) {
     return (
@@ -51,15 +154,17 @@ const PlayerBar = () => {
           borderTop: '1px solid #282828',
           zIndex: 99
         }} 
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         onClick={togglePanel}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px' }}>
           <div className="track-thumb-wrapper" style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
              <img src={displayThumb} alt="cover" className="track-thumb" />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-            <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'white', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentSong.title}</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden' }}>{currentSong.channel}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
+            <MarqueeText text={currentSong.title} style={{ fontSize: '14px', fontWeight: 'bold', color: 'white' }} />
+            <MarqueeText text={currentSong.channel} style={{ fontSize: '12px', color: 'var(--text-muted)' }} />
           </div>
         </div>
 
@@ -94,26 +199,66 @@ const PlayerBar = () => {
 
   return (
     <footer className="player-bar-container">
-      <div className="now-playing-info clickable" onClick={togglePanel} style={{ cursor: 'pointer' }}>
+      <div 
+        className="now-playing-info clickable" 
+        onClick={togglePanel} 
+        style={{ 
+          cursor: 'pointer', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '15px', 
+          width: '30%', 
+          minWidth: '220px' 
+        }}
+      >
         <div className="track-thumb-wrapper" style={{ width: '56px', height: '56px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
           <img src={displayThumb} alt="cover" className="track-thumb" />
         </div>
-        <div className="track-details">
-          <div className="track-title">{currentSong.title}</div>
-          <div className="track-artist">{currentSong.channel}</div>
+        <div className="track-details" style={{ flex: '1 1 auto', marginRight: '10px', overflow: 'hidden' }}>
+          <MarqueeText text={currentSong.title} style={{ fontSize: '14px', fontWeight: '600', color: 'white' }} />
+          <MarqueeText text={currentSong.channel} style={{ fontSize: '12px', color: 'var(--text-muted)' }} />
         </div>
+        
+        <button 
+          className="icon-btn" 
+          onClick={(e) => { e.stopPropagation(); toggleLike(currentSong); }} 
+          title={isLiked ? "Beğenilenlerden Kaldır" : "Beğen"}
+          style={{ flexShrink: 0 }}
+        >
+          {isLiked ? <MdFavorite size={22} color="var(--accent)" /> : <MdFavoriteBorder size={22} color="var(--text-muted)" />}
+        </button>
       </div>
 
-      <div className="player-controls">
-        <div className="main-buttons">
+      <div className="player-controls" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '40%' }}>
+        <div className="main-buttons" style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '5px' }}>
+          <button 
+            className="icon-btn" 
+            onClick={(e) => { e.stopPropagation(); toggleShuffle(); }}
+            title="Karışık Çal"
+            style={{ color: isShuffle ? 'var(--accent)' : 'var(--text-muted)' }}
+          >
+            <MdShuffle size={20} />
+          </button>
+
           <button className="icon-btn" onClick={(e) => { e.stopPropagation(); playPrev(); }}><MdSkipPrevious size={28} /></button>
+          
           <button className="play-pause-btn" onClick={(e) => { e.stopPropagation(); togglePlay(); }}>
             {isPlaying ? <MdPause size={32} color="black" /> : <MdPlayArrow size={32} color="black" />}
           </button>
+          
           <button className="icon-btn" onClick={(e) => { e.stopPropagation(); playNext(); }}><MdSkipNext size={28} /></button>
+          
+          <button 
+            className="icon-btn" 
+            onClick={(e) => { e.stopPropagation(); toggleRepeat(); }}
+            title="Tekrarla"
+            style={{ color: isRepeat ? 'var(--accent)' : 'var(--text-muted)' }}
+          >
+            <MdRepeat size={20} />
+          </button>
         </div>
         
-        <div className="progress-container" onClick={(e) => e.stopPropagation()}>
+        <div className="progress-container" onClick={(e) => e.stopPropagation()} style={{ width: '100%' }}>
           <span className="time-text">{formatTime(currentTime)}</span>
           <div className="seek-bar-wrapper">
             <input 
@@ -127,7 +272,54 @@ const PlayerBar = () => {
         </div>
       </div>
 
-      <div className="player-actions"></div>
+      <div className="player-actions" style={{ display: 'flex', alignItems: 'center', gap: '15px', justifyContent: 'flex-end', width: '30%', minWidth: '220px' }}>
+        <button 
+          className="icon-btn" 
+          onClick={(e) => { e.stopPropagation(); openAddModal(currentSong); }} 
+          title="Çalma Listesine Ekle"
+        >
+          <MdPlaylistAdd size={24} color="var(--text-muted)" />
+        </button>
+        
+        <button 
+          className="icon-btn" 
+          onClick={handleShare} 
+          title="Şarkıyı Paylaş"
+        >
+          <MdShare size={20} color="var(--text-muted)" />
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px' }}>
+          <button 
+            className="icon-btn" 
+            onClick={(e) => { e.stopPropagation(); setVolume(volume > 0 ? 0 : 50); }} 
+            title={volume === 0 ? "Sesi Aç" : "Sessize Al"}
+            style={{ padding: 0 }}
+          >
+            {volume === 0 ? (
+              <MdVolumeOff size={22} color="var(--text-muted)" />
+            ) : volume < 50 ? (
+              <MdVolumeDown size={22} color="white" />
+            ) : (
+              <MdVolumeUp size={22} color="white" />
+            )}
+          </button>
+          
+          <input 
+            type="range" 
+            min="0" 
+            max="100" 
+            value={volume} 
+            onChange={(e) => setVolume(parseInt(e.target.value))}
+            className="seek-bar" 
+            style={{ 
+              width: '80px', 
+              height: '4px',
+              background: `linear-gradient(to right, #fff ${volume}%, #4d4d4d ${volume}%)`
+            }} 
+          />
+        </div>
+      </div>
     </footer>
   );
 };
