@@ -15,11 +15,11 @@
 body { background-color: var(--bg-amoled); color: var(--text-main); height: 100vh; height: 100dvh; overflow: hidden; -webkit-user-select: none; user-select: none; }
 input, textarea { -webkit-user-select: auto; user-select: auto; }
 
-/* Uygulama içindeki TÜM resimlerin basılı tutularak telefona kaydedilmesini veya sürüklenmesini engeller */
+/* Resimlerin basılı tutulmasını engeller */
 img {
-  -webkit-touch-callout: none !important; /* iOS: Uzun basınca açılan menüyü kapatır */
-  -webkit-user-drag: none !important;     /* iOS/Safari/Chrome: Sürüklemeyi engeller */
-  user-select: none !important;           /* Resimlerin seçilmesini engeller */
+  -webkit-touch-callout: none !important; 
+  -webkit-user-drag: none !important;     
+  user-select: none !important;           
 }
 
 ::-webkit-scrollbar { width: 5px; } 
@@ -88,7 +88,21 @@ img {
 .now-playing-panel { position: relative; width: 0; background-color: var(--bg-panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s; overflow: hidden; z-index: 10; padding: 0; }
 .now-playing-panel.open { width: 340px; padding: 20px; padding-bottom: 110px; }
 
-.ambient-bg { position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background-size: cover; background-position: center; filter: blur(60px) saturate(250%) brightness(0.6); opacity: 0.8; z-index: 0; pointer-events: none; transition: background-image 1s ease-in-out; }
+/* SIVI MESH ANİMASYONLU ARKA PLAN */
+.ambient-bg { 
+  position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; 
+  background-size: 200% 200%; 
+  filter: blur(80px) saturate(220%) brightness(0.65); 
+  opacity: 0.8; z-index: 0; pointer-events: none; 
+  transition: background-image 1s ease-in-out; 
+  animation: liquidGradient 15s ease infinite; 
+}
+@keyframes liquidGradient {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
 .ambient-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(18,18,18,0.9) 60%, rgba(18,18,18,1) 100%); z-index: 0; pointer-events: none; }
 .panel-header, .panel-scroll-area { position: relative; z-index: 1; }
 
@@ -98,6 +112,11 @@ img {
 .panel-scroll-area { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
 .panel-scroll-area::-webkit-scrollbar { display: none; }
 
+/* Portre veya normal yan paneldeyken sol sütun sarmalayıcısının düzeni bozmaması sağlanır */
+.panel-left-column {
+  display: contents;
+}
+
 .panel-artwork-container { position: relative; width: 100%; max-width: 350px; aspect-ratio: 1; margin: 0 auto 20px auto; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.5); flex-shrink: 0; background-color: black; }
 
 .youtube-react-wrapper { width: 100% !important; height: 100% !important; position: relative !important; display: block !important; }
@@ -106,6 +125,11 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .panel-artwork { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
 
 .panel-info { text-align: left; margin-bottom: 20px; flex-shrink: 0; }
+.panel-info-row { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; }
+.panel-info-text-container { flex: 1; padding-right: 15px; overflow: hidden; }
+.panel-info-channel-link { cursor: pointer; display: inline-block; width: 100%; }
+.panel-info-like-btn { margin-top: 5px; flex-shrink: 0; }
+
 .panel-title { font-size: 22px; font-weight: bold; color: white; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .panel-artist { font-size: 15px; color: rgba(255,255,255,0.7); }
 
@@ -118,7 +142,6 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .lyrics-card.expanded { flex: 1; margin-top: 0; background-color: transparent; padding: 0; height: 100%; }
 .lyrics-header { font-size: 18px; font-weight: 700; color: white; margin-bottom: 20px; flex-shrink: 0; }
 
-/* Şarkı sözleri kaydırma alanı - esneme payı için sağ boşluk eklendi */
 .lyrics-content { 
   max-height: 40vh; 
   overflow-y: auto; 
@@ -128,14 +151,13 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   gap: 12px; 
   padding-bottom: 50%; 
   position: relative; 
-  padding-right: 30px; /* Sağa büyüyen kelimelerin kırpılmasını engeller */
-  padding-left: 5px;   /* Sol kenar dengesi */
+  padding-right: 30px;
+  padding-left: 5px;
 }
 .lyrics-card.expanded .lyrics-content { max-height: 100%; flex: 1; }
 .lyrics-content::-webkit-scrollbar { display: none; }
 .lyrics-content { scrollbar-width: none; }
 
-/* Kelimelerin esnerken kırpılmasını önlemek için max-width ve display güncellendi */
 .lyric-line { 
   font-size: 22px; 
   font-weight: 700; 
@@ -146,15 +168,14 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   padding: 6px 0; 
   transform-origin: left center; 
   will-change: transform, color; 
-  display: inline-block; /* Genişliğin tüm satırı kaplayıp taşmasını önler */
-  max-width: 90%;       /* Kelimelerin sağ sınıra dayanarak kırpılmasını önler */
+  display: inline-block;
+  max-width: 90%;
 }
 .lyric-line:hover { color: rgba(255,255,255,0.7); }
 
-/* Aktif kelime büyüme çarpanı kırpılmayı engellemek için 1.1'e dengelendi */
 .lyric-line.active { 
   color: white; 
-  transform: scale(1.1); /* 1.15'ten 1.1'e düşürülerek kırpılma riski minimize edildi */
+  transform: scale(1.1);
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.2); 
 }
 .lyrics-placeholder { text-align: center; color: rgba(255,255,255,0.4); font-size: 16px; margin: 30px 0; }
@@ -187,7 +208,6 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .add-playlist-btn:hover { background: var(--accent); }
 .home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px; }
 
-/* Kart Hover ve geçiş süreleri daha pürüzsüz ve estetik hale getirildi */
 .home-card { 
   background: rgba(255,255,255,0.03); 
   padding: 15px; 
@@ -223,9 +243,8 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .playlist-header-large { margin-bottom: 25px; }
 .title-container { display: flex; align-items: center; gap: 15px; }
 
-/* Büyük listeler için başlık boyutu ekran boyutuna göre otomatik ölçeklenir hale getirildi (Clamp) */
 .playlist-huge-title { 
-  font-size: clamp(1.75rem, 5vw, 3rem); /* Mobilde daha küçük, PC'de daha büyük akıcı font */
+  font-size: clamp(1.75rem, 5vw, 3rem); 
   font-weight: 900; 
   line-height: 1.1; 
   color: white; 
@@ -269,25 +288,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .song-title { font-size: 15px; font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .song-channel { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-@media screen and (min-width: 769px) {
-  .now-playing-panel.fullscreen { position: fixed; top: 0; left: 0; width: 100vw !important; height: 100vh !important; height: 100dvh !important; z-index: 9990 !important; background-color: var(--bg-amoled); padding: 30px 40px; border-left: none; display: flex; flex-direction: column; align-items: center; }
-  .now-playing-panel.fullscreen .panel-header { width: 100%; max-width: 800px; margin: 0 auto; flex-shrink: 0; }
-  .now-playing-panel.fullscreen .panel-scroll-area { max-width: 800px; width: 100%; margin: 0 auto; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 30px; padding-top: 10px; padding-bottom: 40px; }
-  .now-playing-panel.fullscreen .panel-artwork-container { width: 45vmin !important; height: 45vmin !important; max-width: 80vw !important; max-height: 80vw !important; min-width: 280px !important; min-height: 280px !important; margin: 0 auto !important; margin-top: auto !important; aspect-ratio: 1 / 1 !important; flex-shrink: 0 !important; border-radius: 12px !important; box-shadow: 0 15px 50px rgba(0,0,0,0.6) !important; overflow: hidden !important; position: relative !important; background-color: black !important; }
-  .now-playing-panel.fullscreen .panel-info { text-align: center; margin: 0 auto; width: 100%; }
-  .now-playing-panel.fullscreen .panel-title { font-size: 32px; margin-bottom: 5px; justify-content: center; }
-  .now-playing-panel.fullscreen .panel-controls { margin: 0 auto; width: 100%; max-width: 600px; display: flex; flex-direction: column; align-items: center; }
-  .now-playing-panel.fullscreen .progress-container { margin: 0 auto; width: 100%; }
-  .now-playing-panel.fullscreen .panel-main-buttons { margin-top: 25px; transform: scale(1.2); }
-  .now-playing-panel.fullscreen .panel-actions { margin: 0 auto !important; margin-bottom: auto !important; justify-content: center; gap: 40px; width: 100%; }
-  .now-playing-panel.fullscreen .lyrics-card { margin-top: 0; margin-bottom: auto !important; width: 100%; max-width: 600px; }
-}
-
-@media screen and (max-width: 1024px) and (min-width: 769px) {
-  .sidebar-desktop { width: 220px; }
-  .now-playing-panel.open:not(.fullscreen) { position: absolute; right: 0; top: 0; height: 100vh; height: 100dvh; z-index: 50; box-shadow: -10px 0 50px rgba(0,0,0,0.8); }
-}
-
+/* MOBİL TASARIM BLOĞU */
 @media screen and (max-width: 768px) {
   ::-webkit-scrollbar { display: none; } 
   * { scrollbar-width: none; } 
@@ -335,6 +336,15 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   .search-bar-container { padding: 10px 15px; }
   .song-row { padding: 8px 10px; }
   .song-row:hover .play-overlay { opacity: 0; } 
+
+  .playlist-action-bar {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    margin-bottom: 20px !important;
+  }
+  .playlist-action-bar .secondary-btn {
+    margin-left: auto !important; 
+  }
 }
 
 .search-chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.1); padding: 8px 15px; border-radius: 50px; font-size: 13px; cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
@@ -347,7 +357,24 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .mode-btn { flex: 1; background: transparent; border: none; color: var(--text-muted); font-size: 13px; font-weight: 600; z-index: 2; cursor: pointer; padding: 6px 0; transition: color 0.3s; position: relative; }
 .mode-btn.active { color: white; }
 
+/* GENEL PORTRE / DAR EKRAN SÖZLER GENİŞLEME GİZLEME KURALLARI */
 .hidden-for-lyrics { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; z-index: -10 !important; margin: 0 !important; }
+
+/* 
+   display: contents aktifken absolute ve opacity kuralları geçersiz kalır. 
+   Bu yüzden gizleme anında display: block !important ile sarmalayıcıyı somut bir kutuya dönüştürüp gizliyoruz.
+*/
+.now-playing-panel .panel-left-column.hidden-for-lyrics {
+  display: block !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  z-index: -10 !important;
+  margin: 0 !important;
+}
 
 .playlist-search-box { display: flex; align-items: center; background-color: rgba(255,255,255,0.05); padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; gap: 10px; border: 1px solid transparent; transition: 0.2s; }
 .playlist-search-box:focus-within { border-color: rgba(255,255,255,0.2); background-color: rgba(255,255,255,0.08); }
@@ -359,29 +386,335 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .sidebar-playlists-dropdown::-webkit-scrollbar { width: 4px; }
 .sidebar-playlists-dropdown::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
 
-/* PREMIUM: AKILLI KAYAN YAZI (MARQUEE) ANIMASYONU */
 @keyframes marquee {
   0% { transform: translateX(0); }
-  15% { transform: translateX(0); } /* Başlangıçta 1.5 saniye bekle (Premium hissi) */
-  50% { transform: translateX(var(--marquee-dist)); } /* Sona doğru kay */
-  65% { transform: translateX(var(--marquee-dist)); } /* Sonda 1.5 saniye bekle */
-  95% { transform: translateX(0); } /* Yumuşakça başa geri kay */
+  15% { transform: translateX(0); } 
+  50% { transform: translateX(var(--marquee-dist)); } 
+  65% { transform: translateX(var(--marquee-dist)); } 
+  95% { transform: translateX(0); } 
   100% { transform: translateX(0); }
 }
 
-.marquee-container {
-  overflow: hidden;
-  white-space: nowrap;
-  width: 100%;
-  position: relative;
+.marquee-container { overflow: hidden; white-space: nowrap; width: 100%; position: relative; }
+.marquee-text { display: inline-block; white-space: nowrap; will-change: transform; }
+.marquee-active { animation: marquee var(--marquee-duration, 8s) ease-in-out infinite; }
+
+/* ========================================================
+   GENEL MASAÜSTÜ & TABLET TAM EKRAN (Fullscreen) TASARIMI
+   ======================================================== */
+@media screen and (min-width: 769px) {
+  .now-playing-panel.fullscreen { 
+    position: fixed; top: 0; left: 0; width: 100vw !important; height: 100vh !important; height: 100dvh !important; 
+    z-index: 9990 !important; background-color: var(--bg-amoled); padding: 30px 40px; border-left: none; 
+    display: flex; flex-direction: column; align-items: center; 
+  }
+  .now-playing-panel.fullscreen .panel-header { width: 100%; max-width: 800px; margin: 0 auto; flex-shrink: 0; }
+  
+  .now-playing-panel.fullscreen .panel-scroll-area { 
+    max-width: 800px; 
+    width: 100%; 
+    margin: 0 auto; 
+    height: calc(100vh - 80px) !important; 
+    height: calc(100dvh - 80px) !important;
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: flex-start; 
+    gap: 3vh; 
+    padding-top: 10px; 
+    padding-bottom: 40px; 
+  }
+  
+  .now-playing-panel.fullscreen .panel-artwork-container { width: 45vh !important; height: 45vh !important; max-width: 80vw !important; max-height: 80vw !important; min-width: 250px !important; min-height: 250px !important; margin: 0 auto !important; margin-top: auto !important; aspect-ratio: 1 / 1 !important; flex-shrink: 0 !important; border-radius: 12px !important; box-shadow: 0 15px 50px rgba(0,0,0,0.6) !important; overflow: hidden !important; position: relative !important; background-color: black !important; }
+  .now-playing-panel.fullscreen .panel-info { text-align: center; margin: 0 auto; width: 100%; }
+  .now-playing-panel.fullscreen .panel-title { font-size: 32px; margin-bottom: 5px; justify-content: center; }
+  .now-playing-panel.fullscreen .panel-controls { margin: 0 auto; width: 100%; max-width: 600px; display: flex; flex-direction: column; align-items: center; }
+  .now-playing-panel.fullscreen .progress-container { margin: 0 auto; width: 100%; }
+  .now-playing-panel.fullscreen .panel-main-buttons { margin-top: 25px; transform: scale(1.2); }
+  .now-playing-panel.fullscreen .panel-actions { margin: 0 auto !important; margin-bottom: auto !important; justify-content: center; gap: 40px; width: 100%; }
+  .now-playing-panel.fullscreen .lyrics-card { margin-top: 0; margin-bottom: auto !important; width: 100%; max-width: 600px; }
+
+  /* Dikey Modda Sözler Genişletildiğinde WebKit'te Boşluğu Kapatan Dikey Blok Yapısı */
+  .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    height: calc(100vh - 80px) !important; 
+    height: calc(100dvh - 80px) !important;
+    padding-top: 0 !important;
+    gap: 0 !important; 
+  }
+  .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active .lyrics-card {
+    order: 1 !important; 
+    flex: 1 !important;
+    height: 100% !important; 
+    max-height: none !important;
+    margin-top: 0 !important;
+    margin-bottom: 20px !important;
+  }
+  .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active .panel-controls {
+    order: 2 !important; 
+    flex-shrink: 0 !important;
+    margin-top: auto !important;
+    width: 100% !important;
+  }
 }
 
-.marquee-text {
-  display: inline-block;
-  white-space: nowrap;
-  will-change: transform;
+.now-playing-panel .panel-scroll-area.lyrics-expanded-active {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  height: 100% !important;
+  padding-top: 0 !important;
+  gap: 0 !important;
+}
+.now-playing-panel .panel-scroll-area.lyrics-expanded-active .lyrics-card {
+  order: 1 !important;
+  flex: 1 !important;
+  height: 100% !important;
+  max-height: none !important;
+  margin-top: 0 !important;
+  margin-bottom: 20px !important;
+}
+.now-playing-panel .panel-scroll-area.lyrics-expanded-active .panel-controls {
+  order: 2 !important;
+  flex-shrink: 0 !important;
+  margin-top: auto !important;
+  width: 100% !important;
 }
 
-.marquee-active {
-  animation: marquee var(--marquee-duration, 8s) ease-in-out infinite;
+/* ========================================================
+   TABLET YATAY & BİLGİSAYARLAR İÇİN APPLE MUSIC TASARIMI (GELİŞTİRİLMİŞ)
+   ======================================================== */
+@media screen and (min-width: 800px) and (min-aspect-ratio: 1.2/1) {
+  .now-playing-panel.fullscreen { 
+    padding: 30px 60px; 
+  }
+  
+  .now-playing-panel.fullscreen .panel-header { 
+    width: 100%; 
+    max-width: 1200px; 
+    margin: 0 auto 30px auto; 
+  }
+  
+  /* Esnemeyen, kesinlikle %50 / %50 iki eşit sütundan oluşan grid yapısı */
+  .now-playing-panel.fullscreen .panel-scroll-area { 
+    max-width: 1200px; 
+    width: 100% !important; 
+    margin: auto !important; 
+    flex: 1; 
+    display: grid !important; 
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; 
+    gap: 0 80px !important;
+    align-content: stretch !important; 
+    justify-content: center !important; 
+    align-items: stretch !important;
+    height: 100% !important;
+    max-height: 72vh !important; /* Dikey sıkışmayı tamamen engelleyen sabit üst sınır */
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* 
+     YATAY MODTA GÖSTERİM OVERRIDES:
+     Sol sütunun dikey flex düzenini kararlı, milimetrik ve simetrik hale getirir. 
+  */
+  .now-playing-panel.fullscreen .panel-left-column {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    height: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Döndürme çakışmalarını önleyen genel sol blok override kuralı */
+  .now-playing-panel.fullscreen .panel-left-column.hidden-for-lyrics {
+    display: flex !important;
+    position: relative !important;
+    width: 100% !important;
+    height: 100% !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+    z-index: 1 !important;
+  }
+
+  /* Albüm kapağının boyutu ekran yüksekliğine göre mükemmel oranlanır ve sabit kalır */
+  .now-playing-panel.fullscreen .panel-artwork-container { 
+    width: 100% !important;
+    max-width: min(35vh, 280px) !important; 
+    height: auto !important;
+    aspect-ratio: 1 / 1 !important;
+    margin: 0 auto !important;
+    border-radius: 12px !important; 
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7) !important; 
+    overflow: hidden !important; 
+    position: relative !important; 
+    background-color: black !important;
+  }
+
+  /* 
+     ŞARKI BİLGİSİ VE KELİMELERİNİN ORTALANMASI:
+     Beğeni butonu absolute yapılarak şarkı isminin sol yarının tam merkezinde kalması sağlanır.
+  */
+  .now-playing-panel.fullscreen .panel-info { 
+    width: 100% !important; 
+    margin: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  .now-playing-panel.fullscreen .panel-info-row {
+    position: relative !important;
+    display: flex !important;
+    width: 100% !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 0 45px !important; /* Kalp butonunun taşmasını engelleyen simetrik kenar payı */
+  }
+
+  .now-playing-panel.fullscreen .panel-info-text-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    text-align: center !important;
+    padding-right: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+
+  /* Kayan yazı alanının merkezde durması ve taşmaması */
+  .now-playing-panel.fullscreen .panel-info-text-container .marquee-container {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .now-playing-panel.fullscreen .panel-info-text-container .marquee-text {
+    text-align: center !important;
+  }
+
+  .now-playing-panel.fullscreen .panel-title { 
+    font-size: clamp(20px, 2.5vh, 26px) !important; 
+    justify-content: center !important; 
+    text-align: center !important;
+  }
+  
+  .now-playing-panel.fullscreen .panel-artist { 
+    font-size: clamp(13px, 1.8vh, 16px) !important; 
+    text-align: center !important;
+  }
+
+  /* Kalp butonunun şarkı isminin merkezliğini bozmadan sağ kenarda durmasını sağlar */
+  .now-playing-panel.fullscreen .panel-info-like-btn {
+    position: absolute !important;
+    right: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    margin: 0 !important;
+  }
+  
+  /* Kontrollerin hizalanması ve kararlı dikey düzeni */
+  .now-playing-panel.fullscreen .panel-controls { 
+    width: 100% !important; 
+    max-width: 420px !important; 
+    margin: 0 auto !important; 
+    display: flex !important; 
+    flex-direction: column !important; 
+    align-items: center !important;
+  }
+
+  .now-playing-panel.fullscreen .panel-main-buttons { 
+    margin-top: 15px !important; 
+    transform: scale(1.05) !important; 
+    gap: 20px !important; 
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+
+  .now-playing-panel.fullscreen .progress-container { 
+    width: 100% !important; 
+  }
+  
+  /* Aksiyon butonlarının sol sütun altında hizalanması */
+  .now-playing-panel.fullscreen .panel-actions { 
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: center !important; 
+    gap: 40px !important; 
+    width: 100% !important;
+    margin: 0 !important;
+    opacity: 1 !important;
+  }
+
+  /* Sağ taraftaki sözler sütunu */
+  .now-playing-panel.fullscreen .lyrics-card { 
+    height: 100% !important; 
+    max-height: 100% !important; 
+    margin: 0 !important; 
+    background-color: transparent !important; 
+    display: flex !important; 
+    flex-direction: column !important; 
+    padding: 0 !important;
+  }
+
+  .now-playing-panel.fullscreen .lyrics-header { 
+    font-size: 24px; 
+    margin-bottom: 20px; 
+  }
+
+  .now-playing-panel.fullscreen .lyrics-header .icon-btn { 
+    display: none !important; 
+  } 
+
+  /* Şarkı sözü olmadığında "Söz bulunamadı" yazısını tam dikey ve yatay olarak sağda ortalar */
+  .now-playing-panel.fullscreen .lyrics-content { 
+    max-height: 100% !important; 
+    flex: 1 !important; 
+    padding-right: 40px !important; 
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+  }
+
+  .now-playing-panel.fullscreen .lyrics-placeholder {
+    margin: 0 !important;
+    font-size: clamp(16px, 2vh, 20px) !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+    text-align: center !important;
+  }
+
+  .now-playing-panel.fullscreen .lyric-line { 
+    font-size: clamp(18px, 2.3vh, 24px) !important; 
+    padding: 10px 0 !important; 
+  }
+  
+  /* 
+     YATAY MODTA GÖSTERİM OVERRIDES:
+     Öncelikli gizleme kuralları YALNIZCA TAM EKRAN (.fullscreen) durumlarında devre dışı bırakılır.
+     Böylece, normal dar yan panel açıkken (.fullscreen sınıfı yokken) gizleme sınıfı dar panelde başarıyla çalışır.
+  */
+  .now-playing-panel.fullscreen .hidden-for-lyrics { 
+    position: relative !important; 
+    width: auto !important; 
+    height: auto !important; 
+    opacity: 1 !important; 
+    pointer-events: auto !important; 
+    overflow: visible !important; 
+    z-index: 1 !important; 
+    margin: 0 auto !important; 
+  }
+}
+
+/* Dik Moddaki Tabletler / Geniş Telefonlar (Yarım ekran panel sürümü) */
+@media screen and (max-width: 1024px) and (min-width: 769px) {
+  .sidebar-desktop { width: 220px; }
+  .now-playing-panel.open:not(.fullscreen) { position: absolute; right: 0; top: 0; height: 100vh; height: 100dvh; z-index: 50; box-shadow: -10px 0 50px rgba(0,0,0,0.8); }
 }

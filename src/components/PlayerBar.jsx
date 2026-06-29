@@ -7,7 +7,8 @@ import {
 } from 'react-icons/md';
 import toast from 'react-hot-toast';
 
-const MarqueeText = ({ text, style }) => {
+// ÖNBELLEKLENMİŞ MARQUEE BİLEŞENİ (Performans Korumalı)
+const MarqueeText = React.memo(({ text, style }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
   const [isMarquee, setIsMarquee] = useState(false);
@@ -69,7 +70,9 @@ const MarqueeText = ({ text, style }) => {
       </span>
     </div>
   );
-};
+});
+
+MarqueeText.displayName = 'MarqueeText';
 
 const formatTime = (time) => {
   if (!time || isNaN(time)) return "0:00";
@@ -78,13 +81,53 @@ const formatTime = (time) => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
+// SADECE PROGRESS DEĞİŞTİĞİNDE RENDER EDİLEN ALT BİLEŞEN
+const TimelineProgress = () => {
+  const currentTime = usePlayerStore(s => s.currentTime);
+  const duration = usePlayerStore(s => s.duration);
+  const seekTo = usePlayerStore(s => s.seekTo);
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="progress-container" onClick={(e) => e.stopPropagation()} style={{ width: '100%' }}>
+      <span className="time-text">{formatTime(currentTime)}</span>
+      <div className="seek-bar-wrapper">
+        <input 
+          type="range" 
+          min="0" 
+          max={duration || 100} 
+          value={currentTime} 
+          onChange={(e) => seekTo(parseFloat(e.target.value))}
+          className="seek-bar"
+          style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, #4d4d4d ${progressPercent}%)` }}
+        />
+      </div>
+      <span className="time-text">{formatTime(duration)}</span>
+    </div>
+  );
+};
+
 const PlayerBar = () => {
-  const { 
-    currentSong, isPlaying, togglePlay, currentTime, duration, seekTo, 
-    togglePanel, playNext, playPrev, downloadedSongs, isPanelOpen,
-    isShuffle, isRepeat, toggleShuffle, toggleRepeat,
-    likedSongs, toggleLike, openAddModal, volume, setVolume, isOfflineMode 
-  } = usePlayerStore();
+  // Seçicileri ayrıştırarak ana PlayerBar'ın saniyede bir render olmasını engelliyoruz
+  const currentSong = usePlayerStore(s => s.currentSong);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
+  const togglePlay = usePlayerStore(s => s.togglePlay);
+  const togglePanel = usePlayerStore(s => s.togglePanel);
+  const playNext = usePlayerStore(s => s.playNext);
+  const playPrev = usePlayerStore(s => s.playPrev);
+  const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
+  const isPanelOpen = usePlayerStore(s => s.isPanelOpen);
+  const isShuffle = usePlayerStore(s => s.isShuffle);
+  const isRepeat = usePlayerStore(s => s.isRepeat);
+  const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
+  const toggleRepeat = usePlayerStore(s => s.toggleRepeat);
+  const likedSongs = usePlayerStore(s => s.likedSongs);
+  const toggleLike = usePlayerStore(s => s.toggleLike);
+  const openAddModal = usePlayerStore(s => s.openAddModal);
+  const volume = usePlayerStore(s => s.volume);
+  const setVolume = usePlayerStore(s => s.setVolume);
+  const isOfflineMode = usePlayerStore(s => s.isOfflineMode);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [touchStart, setTouchStart] = useState(null);
@@ -98,10 +141,8 @@ const PlayerBar = () => {
   if (!currentSong) return null;
   if (isMobile && isPanelOpen) return null;
 
-  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const localData = downloadedSongs[currentSong.id];
   
-  // DÜZELTME: Çevrimiçiyken her zaman canlı YouTube görseli gösterilir; çevrimdışıyken yerel görsel çağrılır.
   const displayThumb = (isOfflineMode && localData?.localThumbUrl)
                        ? localData.localThumbUrl
                        : (currentSong.thumbnail || '/icon.png')
@@ -229,7 +270,7 @@ const PlayerBar = () => {
         </button>
       </div>
 
-      <div className="player-controls" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '40%' }}>
+      <div className="player-controls" style={{ flex: 1, display: 'flex', flexDirection: 'column', align_items: 'center', maxWidth: '40%' }}>
         <div className="main-buttons" style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '5px' }}>
           <button 
             className="icon-btn" 
@@ -258,18 +299,8 @@ const PlayerBar = () => {
           </button>
         </div>
         
-        <div className="progress-container" onClick={(e) => e.stopPropagation()} style={{ width: '100%' }}>
-          <span className="time-text">{formatTime(currentTime)}</span>
-          <div className="seek-bar-wrapper">
-            <input 
-              type="range" min="0" max={duration || 100} value={currentTime} 
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
-              className="seek-bar"
-              style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, #4d4d4d ${progressPercent}%)` }}
-            />
-          </div>
-          <span className="time-text">{formatTime(duration)}</span>
-        </div>
+        {/* Progress Bar Alt Bileşene İndirgenmiştir */}
+        <TimelineProgress />
       </div>
 
       <div className="player-actions" style={{ display: 'flex', alignItems: 'center', gap: '15px', justifyContent: 'flex-end', width: '30%', minWidth: '220px' }}>

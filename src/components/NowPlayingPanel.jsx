@@ -9,8 +9,8 @@ import {
 import YouTubeEngine from './YouTubeEngine';
 import toast from 'react-hot-toast';
 
-// PREMIUM: Ekran Boyutu Değişimlerini Anlık Takip Eden Dinamik Marquee Bileşeni
-const MarqueeText = ({ text, style }) => {
+// ÖNBELLEKLENMİŞ MARQUEE BİLEŞENİ
+const MarqueeText = React.memo(({ text, style }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
   const [isMarquee, setIsMarquee] = useState(false);
@@ -57,7 +57,9 @@ const MarqueeText = ({ text, style }) => {
       </span>
     </div>
   );
-};
+});
+
+MarqueeText.displayName = 'MarqueeText';
 
 const formatTime = (time) => {
   if (!time || isNaN(time)) return "0:00";
@@ -66,18 +68,118 @@ const formatTime = (time) => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
+// PANEL PROGRESS ALT BİLEŞENİ
+const PanelProgress = () => {
+  const currentTime = usePlayerStore(s => s.currentTime);
+  const duration = usePlayerStore(s => s.duration);
+  const seekTo = usePlayerStore(s => s.seekTo);
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="progress-container panel-progress">
+      <span className="time-text">{formatTime(currentTime)}</span>
+      <div className="seek-bar-wrapper">
+        <input 
+          type="range" 
+          min="0" 
+          max={duration || 100} 
+          value={currentTime} 
+          onChange={(e) => seekTo(parseFloat(e.target.value))} 
+          className="seek-bar" 
+          style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, #4d4d4d ${progressPercent}%)` }} 
+        />
+      </div>
+      <span className="time-text">{formatTime(duration)}</span>
+    </div>
+  );
+};
+
+// SÖZLER ALANI ALT BİLEŞENİ (Saniyede bir scroll hesaplamasının ana bileşeni kasmasını engeller)
+const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
+  const lyrics = usePlayerStore(s => s.lyrics);
+  const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
+  const currentTime = usePlayerStore(s => s.currentTime);
+  const seekTo = usePlayerStore(s => s.seekTo);
+
+  const lyricsContainerRef = useRef(null);
+
+  const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
+  const activeLyricIndex = safeLyrics.findIndex((l, i) => { 
+    const nextTime = safeLyrics[i + 1]?.time || Infinity; 
+    return currentTime >= l.time && currentTime < nextTime; 
+  });
+
+  useEffect(() => {
+    if (activeLyricIndex !== -1 && lyricsContainerRef.current) {
+      const container = lyricsContainerRef.current;
+      const activeEl = container.children[activeLyricIndex];
+      if (activeEl) {
+        const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+        container.scrollTo({ top: scrollPos, behavior: 'smooth' });
+      }
+    }
+  }, [activeLyricIndex, isLyricsExpanded]);
+
+  return (
+    <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
+      <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Sözler</span>
+        <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>
+          {isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}
+        </button>
+      </div>
+      <div className="lyrics-content" ref={lyricsContainerRef}>
+        {isLyricsLoading ? (
+          <div className="lyrics-placeholder">Sözler aranıyor...</div>
+        ) : safeLyrics.length > 0 ? (
+          safeLyrics.map((line, idx) => (
+            <div 
+              key={idx} 
+              className={`lyric-line ${idx === activeLyricIndex ? 'active' : ''}`} 
+              onClick={() => seekTo(line.time)}
+            >
+              {line.text}
+            </div>
+          ))
+        ) : (
+          <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const NowPlayingPanel = () => {
   const navigate = useNavigate();
-  const { 
-    currentSong, isPanelOpen, isPanelFullscreen, toggleFullscreen, closePanel, 
-    openAddModal, isPlaying, togglePlay, currentTime, duration, seekTo, playNext, 
-    playPrev, isShuffle, isRepeat, toggleShuffle, toggleRepeat, lyrics, isLyricsLoading, 
-    isVideoMode, setVideoMode, activeEngine, downloadedSongs, 
-    downloadSong, cancelDownload, deleteDownloadedSong, downloadQueue, downloadProgress,
-    likedSongs, toggleLike
-  } = usePlayerStore();
   
-  const lyricsContainerRef = useRef(null);
+  // Seçicileri ayrıştırarak ana panel render yükünü tamamen kaldırıyoruz
+  const currentSong = usePlayerStore(s => s.currentSong);
+  const isPanelOpen = usePlayerStore(s => s.isPanelOpen);
+  const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen);
+  const toggleFullscreen = usePlayerStore(s => s.toggleFullscreen);
+  const closePanel = usePlayerStore(s => s.closePanel);
+  const openAddModal = usePlayerStore(s => s.openAddModal);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
+  const togglePlay = usePlayerStore(s => s.togglePlay);
+  const playNext = usePlayerStore(s => s.playNext);
+  const playPrev = usePlayerStore(s => s.playPrev);
+  const isShuffle = usePlayerStore(s => s.isShuffle);
+  const isRepeat = usePlayerStore(s => s.isRepeat);
+  const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
+  const toggleRepeat = usePlayerStore(s => s.toggleRepeat);
+  const isVideoMode = usePlayerStore(s => s.isVideoMode);
+  const setVideoMode = usePlayerStore(s => s.setVideoMode);
+  const activeEngine = usePlayerStore(s => s.activeEngine);
+  const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
+  const downloadSong = usePlayerStore(s => s.downloadSong);
+  const cancelDownload = usePlayerStore(s => s.cancelDownload);
+  const deleteDownloadedSong = usePlayerStore(s => s.deleteDownloadedSong);
+  const downloadQueue = usePlayerStore(s => s.downloadQueue);
+  const downloadProgress = usePlayerStore(s => s.downloadProgress);
+  const likedSongs = usePlayerStore(s => s.likedSongs);
+  const toggleLike = usePlayerStore(s => s.toggleLike);
+
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
   const [imgSrc, setImgSrc] = useState('');
   const [ambientColors, setAmbientColors] = useState(['#FF2A54', '#ff8038', '#00C6FF', '#121212']);
@@ -141,26 +243,8 @@ const NowPlayingPanel = () => {
     img.onerror = () => setAmbientColors(['#FF2A54', '#ff8038', '#00C6FF', '#121212']);
   }, [imgSrc]);
 
-  const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
-  const activeLyricIndex = safeLyrics.findIndex((l, i) => { 
-    const nextTime = safeLyrics[i + 1]?.time || Infinity; 
-    return currentTime >= l.time && currentTime < nextTime; 
-  });
-
-  useEffect(() => {
-    if (activeLyricIndex !== -1 && lyricsContainerRef.current) {
-      const container = lyricsContainerRef.current;
-      const activeEl = container.children[activeLyricIndex];
-      if (activeEl) {
-        const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
-        container.scrollTo({ top: scrollPos, behavior: 'smooth' });
-      }
-    }
-  }, [activeLyricIndex, isLyricsExpanded]); 
-
   if (!currentSong) return null;
 
-  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
   const isLiked = currentSong ? likedSongs.some(s => s.id === currentSong.id) : false;
   const localData = downloadedSongs[currentSong.id];
   const isDownloaded = !!localData;
@@ -181,7 +265,6 @@ const NowPlayingPanel = () => {
     toast.success("Şarkı bağlantısı kopyalandı!");
   };
 
-  // Tam ekran ve Kapatma işlemlerinde sözlerin durumunu sıfırlayan yardımcı işleyiciler
   const handleToggleFullscreen = () => {
     setIsLyricsExpanded(false);
     toggleFullscreen();
@@ -196,7 +279,7 @@ const NowPlayingPanel = () => {
   const handleTouchEnd = (e) => {
     if (touchStart === null) return;
     const touchEnd = e.changedTouches[0].clientY;
-    const diff = touchStart - touchEnd; // Tanımlanmamış olan diff değişkeni düzeltildi
+    const diff = touchStart - touchEnd;
     if (diff < -50) { 
       e.stopPropagation(); 
       handleClosePanel(); 
@@ -234,46 +317,50 @@ const NowPlayingPanel = () => {
 
       <div className={`panel-scroll-area ${isLyricsExpanded ? 'lyrics-expanded-active' : ''}`}>
         
-        <div className={`panel-artwork-container ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
-          <YouTubeEngine />
-          <img src={imgSrc || '/icon.png'} alt="cover" className="panel-artwork" onLoad={handleImageLoad} onError={handleImageError} style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} />
-        </div>
-
-        <div className={`panel-info ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, paddingRight: '15px', overflow: 'hidden' }}>
-              <MarqueeText text={currentSong.title} style={{ fontSize: '22px', fontWeight: 'bold', color: 'white', marginBottom: '4px' }} />
-              <div style={{ cursor: 'pointer', display: 'inline-block', width: '100%' }} onClick={() => { handleClosePanel(); navigate(`/artist/${encodeURIComponent(currentSong.channel)}`); }}>
-                <MarqueeText text={currentSong.channel} style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)' }} />
-              </div>
-            </div>
-            <button className="icon-btn" onClick={() => toggleLike(currentSong)} style={{ marginTop: '5px' }}>
-              {isLiked ? <MdFavorite size={28} color="var(--accent)" /> : <MdFavoriteBorder size={28} color="var(--text-muted)" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="panel-controls">
-          <div className="progress-container panel-progress">
-            <span className="time-text">{formatTime(currentTime)}</span>
-            <div className="seek-bar-wrapper">
-              <input type="range" min="0" max={duration || 100} value={currentTime} onChange={(e) => seekTo(parseFloat(e.target.value))} className="seek-bar" style={{ background: `linear-gradient(to right, #fff ${progressPercent}%, #4d4d4d ${progressPercent}%)` }} />
-            </div>
-            <span className="time-text">{formatTime(duration)}</span>
-          </div>
+        {/* SOL SÜTUN SARMALAYICISI */}
+        <div className={`panel-left-column ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
           
-          <div className="main-buttons panel-main-buttons">
-            <button className="icon-btn" onClick={toggleShuffle} style={{ color: isShuffle ? 'var(--accent)' : 'var(--text-muted)' }}><MdShuffle size={24} /></button>
-            <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={36} color="white" /></button>
-            <button className="play-pause-btn big" onClick={togglePlay}>
-              {isPlaying ? <MdPause size={40} color="black" /> : <MdPlayArrow size={40} color="black" />}
-            </button>
-            <button className="icon-btn" onClick={playNext}><MdSkipNext size={36} color="white" /></button>
-            <button className="icon-btn" onClick={toggleRepeat} style={{ color: isRepeat ? 'var(--accent)' : 'var(--text-muted)' }}><MdRepeat size={24} /></button>
+          <div className="panel-artwork-container">
+            <YouTubeEngine />
+            <img 
+              src={imgSrc || '/icon.png'} 
+              alt="cover" 
+              className="panel-artwork" 
+              onLoad={handleImageLoad} 
+              onError={handleImageError} 
+              style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} 
+            />
           </div>
-        </div>
 
-        {!isLyricsExpanded && (
+          <div className="panel-info">
+            <div className="panel-info-row">
+              <div className="panel-info-text-container">
+                <MarqueeText text={currentSong.title} style={{ fontSize: '22px', fontWeight: 'bold', color: 'white', marginBottom: '4px' }} />
+                <div className="panel-info-channel-link" onClick={() => { handleClosePanel(); navigate(`/artist/${encodeURIComponent(currentSong.channel)}`); }}>
+                  <MarqueeText text={currentSong.channel} style={{ fontSize: '15px', color: 'rgba(255,255,255,0.7)' }} />
+                </div>
+              </div>
+              <button className="icon-btn panel-info-like-btn" onClick={() => toggleLike(currentSong)}>
+                {isLiked ? <MdFavorite size={28} color="var(--accent)" /> : <MdFavoriteBorder size={28} color="var(--text-muted)" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="panel-controls">
+            {/* Progress Bar Alt Bileşene İndirgenmiştir */}
+            <PanelProgress />
+            
+            <div className="main-buttons panel-main-buttons">
+              <button className="icon-btn" onClick={toggleShuffle} style={{ color: isShuffle ? 'var(--accent)' : 'var(--text-muted)' }}><MdShuffle size={24} /></button>
+              <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={36} color="white" /></button>
+              <button className="play-pause-btn big" onClick={togglePlay}>
+                {isPlaying ? <MdPause size={40} color="black" /> : <MdPlayArrow size={40} color="black" />}
+              </button>
+              <button className="icon-btn" onClick={playNext}><MdSkipNext size={36} color="white" /></button>
+              <button className="icon-btn" onClick={toggleRepeat} style={{ color: isRepeat ? 'var(--accent)' : 'var(--text-muted)' }}><MdRepeat size={24} /></button>
+            </div>
+          </div>
+
           <div className="panel-actions">
             {isDownloaded ? (
               <button className="icon-btn" title="Cihazdan Sil" onClick={() => {
@@ -305,19 +392,12 @@ const NowPlayingPanel = () => {
             <button className="icon-btn" title="Listeye Ekle" onClick={() => openAddModal(currentSong)}><MdPlaylistAdd size={28} color="white" /></button>
             <button className="icon-btn" title="Paylaş" onClick={handleShare}><MdShare size={26} color="white" /></button>
           </div>
-        )}
 
-        <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
-          <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Sözler</span>
-            <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>{isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}</button>
-          </div>
-          <div className="lyrics-content" ref={lyricsContainerRef}>
-            {isLyricsLoading ? <div className="lyrics-placeholder">Sözler aranıyor...</div> : safeLyrics.length > 0 ? safeLyrics.map((line, idx) => (
-              <div key={idx} className={`lyric-line ${idx === activeLyricIndex ? 'active' : ''}`} onClick={() => seekTo(line.time)}>{line.text}</div>
-            )) : <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>}
-          </div>
         </div>
+
+        {/* SAĞ SÜTUN: Şarkı sözleri alanı Alt Bileşene İndirgenmiştir */}
+        <LyricsPanelSection isLyricsExpanded={isLyricsExpanded} setIsLyricsExpanded={setIsLyricsExpanded} />
+
       </div>
     </aside>
   );
