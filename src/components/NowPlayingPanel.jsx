@@ -4,7 +4,8 @@ import usePlayerStore from '../store/usePlayerStore';
 import { 
   MdExpandMore, MdPlayArrow, MdPause, MdSkipNext, MdSkipPrevious, 
   MdPlaylistAdd, MdShuffle, MdRepeat, MdOpenInFull, MdCloseFullscreen, 
-  MdShare, MdFileDownload, MdDelete, MdClose, MdFavorite, MdFavoriteBorder
+  MdShare, MdFileDownload, MdDelete, MdClose, MdFavorite, MdFavoriteBorder,
+  MdTranslate, MdArrowDropDown
 } from 'react-icons/md';
 import YouTubeEngine from './YouTubeEngine';
 import toast from 'react-hot-toast';
@@ -108,6 +109,17 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
   const togglePlay = usePlayerStore(s => s.togglePlay);
   const isPlaying = usePlayerStore(s => s.isPlaying);
 
+  // --- ÇEVİRİ SİSTEMİ VERİ BAĞLANTILARI ---
+  const translatedLyrics = usePlayerStore(s => s.translatedLyrics);
+  const isTranslationLoading = usePlayerStore(s => s.isTranslationLoading);
+  const showTranslation = usePlayerStore(s => s.showTranslation);
+  const setTranslationActive = usePlayerStore(s => s.setTranslationActive);
+  const targetLanguage = usePlayerStore(s => s.targetLanguage);
+  const detectedLanguage = usePlayerStore(s => s.detectedLanguage);
+  const translateCurrentLyrics = usePlayerStore(s => s.translateCurrentLyrics);
+
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const langMenuRef = useRef(null);
   const lyricsContainerRef = useRef(null);
 
   const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
@@ -127,27 +139,169 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
     }
   }, [activeLyricIndex, isLyricsExpanded]);
 
+  // Dil menüsü dışına tıklanıldığında menüyü kapatan kanca
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target)) {
+        setIsLangMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const handleTranslateToggle = (e) => {
+    e.stopPropagation();
+    if (translatedLyrics.length > 0) {
+      setTranslationActive(!showTranslation);
+    } else {
+      translateCurrentLyrics(targetLanguage);
+    }
+  };
+
+  const handleLanguageSelect = (langCode, e) => {
+    e.stopPropagation();
+    setIsLangMenuOpen(false);
+    translateCurrentLyrics(langCode);
+  };
+
   return (
     <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
-      <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Sözler</span>
+      <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
+          <span>Sözler</span>
+          
+          {/* ÇEVİRİ BUTON VE MENÜ YAPILANDIRMASI */}
+          {safeLyrics.length > 0 && !isLyricsLoading && lyrics[0]?.text !== "✦ Enstrümantal ✦" && (
+            <div ref={langMenuRef} className="translate-control-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+              <button 
+                className={`icon-btn translate-btn ${showTranslation ? 'active' : ''}`} 
+                onClick={handleTranslateToggle}
+                title="Şarkı Sözlerini Çevir"
+                style={{ 
+                  padding: '5px', 
+                  borderRadius: '50%', 
+                  background: showTranslation ? 'rgba(255, 42, 84, 0.15)' : 'transparent',
+                  color: showTranslation ? 'var(--accent)' : 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  cursor: 'pointer'
+                }}
+              >
+                <MdTranslate size={18} />
+              </button>
+              
+              <div 
+                className="lang-badge" 
+                onClick={(e) => { e.stopPropagation(); setIsLangMenuOpen(!isLangMenuOpen); }}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  background: 'rgba(255,255,255,0.08)',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  userSelect: 'none',
+                  border: '1px solid rgba(255,255,255,0.05)'
+                }}
+              >
+                <span>{detectedLanguage} ➜ {targetLanguage.toUpperCase()}</span>
+                <MdArrowDropDown size={14} />
+              </div>
+
+              {isLangMenuOpen && (
+                <div 
+                  className="custom-dropdown-menu lang-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: '110%',
+                    left: 0,
+                    background: '#282828',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                    padding: '4px 0',
+                    zIndex: 100,
+                    minWidth: '120px',
+                    border: '1px solid rgba(255,255,255,0.08)'
+                  }}
+                >
+                  {[
+                    { code: 'tr', name: 'Türkçe' },
+                    { code: 'en', name: 'English' },
+                    { code: 'de', name: 'Deutsch' },
+                    { code: 'fr', name: 'Français' },
+                    { code: 'es', name: 'Español' }
+                  ].map(lang => (
+                    <div 
+                      key={lang.code}
+                      className={`dropdown-item ${targetLanguage === lang.code ? 'active' : ''}`}
+                      onClick={(e) => handleLanguageSelect(lang.code, e)}
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        color: targetLanguage === lang.code ? 'var(--accent)' : 'var(--text-muted)'
+                      }}
+                    >
+                      {lang.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>
           {isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}
         </button>
       </div>
+
       <div className="lyrics-content" ref={lyricsContainerRef}>
         {isLyricsLoading ? (
           <div className="lyrics-placeholder">Sözler aranıyor...</div>
+        ) : isTranslationLoading ? (
+          <div className="lyrics-placeholder">Sözler çevriliyor...</div>
         ) : safeLyrics.length > 0 ? (
-          safeLyrics.map((line, idx) => (
-            <div 
-              key={idx} 
-              className={`lyric-line ${idx === activeLyricIndex ? 'active' : ''}`} 
-              onClick={() => seekTo(line.time)}
-            >
-              {line.text}
-            </div>
-          ))
+          safeLyrics.map((line, idx) => {
+            const isLineActive = idx === activeLyricIndex;
+            const translatedLine = translatedLyrics[idx]?.text;
+
+            return (
+              <div 
+                key={idx} 
+                className={`lyric-line ${isLineActive ? 'active' : ''}`} 
+                onClick={() => seekTo(line.time)}
+              >
+                <div>{line.text}</div>
+                
+                {/* SPOTIFY STİLİ ÇİFT SATIR ÇEVİRİ KATMANI */}
+                {showTranslation && translatedLine && translatedLine !== line.text && (
+                  <div 
+                    className="lyric-translation"
+                    style={{
+                      fontSize: '0.7em', 
+                      fontWeight: '500', 
+                      opacity: isLineActive ? 0.85 : 0.6,
+                      marginTop: '4px',
+                      lineHeight: '1.25',
+                      display: 'block',
+                      color: isLineActive ? 'white' : 'rgba(255,255,255,0.4)',
+                      transform: 'none'
+                    }}
+                  >
+                    {translatedLine}
+                  </div>
+                )}
+              </div>
+            );
+          })
         ) : (
           <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>
         )}

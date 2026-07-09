@@ -79,7 +79,7 @@ const getSimilarityScore = (str1, str2) => {
   const cleanAndSplit = (str) => {
     return str
       .toLowerCase()
-      .replace(/[^a-z0-9ıışşğğççööüü]/g, ' ') // Noktalama işaretlerini boşlukla değiştirerek kelimeleri korur
+      .replace(/[^a-z0-9ıışşğğççööüü]/g, ' ')
       .split(/\s+/)
       .filter(Boolean);
   };
@@ -108,7 +108,6 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
   const returnedTitle = result.trackName;
   const returnedDuration = result.duration;
 
-  // 1. Süre Güvenlik Duvarı: Eğer süre bilgisi varsa, ±25 saniye tolerans uygula.
   if (searchedDuration > 0 && returnedDuration > 0) {
     const diff = Math.abs(searchedDuration - returnedDuration);
     if (diff > 25) {
@@ -116,11 +115,9 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
     }
   }
 
-  // 2. Metinsel Benzerlik Kontrolü
   const titleScore = getSimilarityScore(searchedTitle, returnedTitle);
   const artistScore = getSimilarityScore(searchedArtist, returnedArtist);
 
-  // Şarkı adı için yüksek benzerlik (>= 0.75), sanatçı adı için makul benzerlik (>= 0.5) arıyoruz.
   if (titleScore >= 0.75 && artistScore >= 0.5) {
     return true;
   }
@@ -135,30 +132,25 @@ const getCandidatePairs = (channel, title) => {
   const rawChannelClean = cleanArtistName(channel);
   const rawTitleClean = cleanTrackTitle(title);
   
-  // 1. Aday: Standart Eşleşme (Kanal Adı = Sanatçı, Video Başlığı = Şarkı)
   pairs.push({ artist: rawChannelClean, title: rawTitleClean });
   
-  // Video başlığında tire işareti arayarak Sanatçı - Şarkı ayrımı yapıyoruz
   const dashRegex = /\s*[-–—]\s*/;
   if (dashRegex.test(rawTitleClean)) {
     const parts = rawTitleClean.split(dashRegex);
     if (parts.length >= 2) {
       const part1 = parts[0];
-      const part2 = parts.slice(1).join(' - '); // Diğer kısımları tire ile birleştir
+      const part2 = parts.slice(1).join(' - ');
       
       const cleanPart1 = cleanArtistName(part1);
       const cleanPart2 = cleanTrackTitle(part2);
       
       if (cleanPart1 && cleanPart2) {
-        // 2. Aday: Ayrıştırılmış Eşleşme (Sol taraf Sanatçı, Sağ taraf Şarkı)
         pairs.push({ artist: cleanPart1, title: cleanPart2 });
-        // 3. Aday: Ters Ayrıştırılmış Eşleşme
         pairs.push({ artist: cleanPart2, title: cleanPart1 });
       }
     }
   }
   
-  // Mükerrer veya boş adayları temizle
   const uniquePairs = [];
   const seen = new Set();
   for (const p of pairs) {
@@ -178,7 +170,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
   const userAgent = 'NovisionMusic v1.0.0 (https://github.com/novision/music)';
   const candidates = getCandidatePairs(channel, title);
   
-  // 1. AŞAMA: Tüm adaylar için süre tabanlı arama (/api/get)
   if (duration && duration > 0) {
     for (const cand of candidates) {
       try {
@@ -187,7 +178,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
         if (getRes.ok) {
           const data = await getRes.json();
           if (data && (data.syncedLyrics || data.plainLyrics || data.instrumental)) {
-            // Sunucu eşleşmesini yerel olarak doğrula
             if (verifyLyricsMatch(cand.artist, cand.title, duration, data)) {
               return data;
             }
@@ -199,7 +189,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
     }
   }
 
-  // 2. AŞAMA: Tüm adaylar için yapılandırılmış arama (/api/search?track_name=&artist_name=)
   for (const cand of candidates) {
     try {
       const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.title)}&artist_name=${encodeURIComponent(cand.artist)}`;
@@ -207,7 +196,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
       if (searchRes.ok) {
         const data = await searchRes.json();
         if (data && data.length > 0) {
-          // Yalancı eşleşmeleri sıkı doğrulamadan geçirerek filtrele
           const verifiedMatches = data.filter(item => 
             verifyLyricsMatch(cand.artist, cand.title, duration, item)
           );
@@ -225,7 +213,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
     }
   }
 
-  // 3. AŞAMA: Tüm adaylar için genel fuzzy araması (/api/search?q=)
   for (const cand of candidates) {
     try {
       const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cand.artist + " " + cand.title)}`;
@@ -250,7 +237,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
     }
   }
 
-  // 4. AŞAMA: Fallback (Kanal adı çöpse ve tireli yapı varsa, sadece şarkı isminin tamamını arat)
   try {
     const rawTitleClean = cleanTrackTitle(title);
     const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(rawTitleClean)}`;
@@ -258,7 +244,6 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
     if (queryRes.ok) {
       const data = await queryRes.json();
       if (data && data.length > 0) {
-        // Fallback aramasında, aday split çiftlerinden herhangi biriyle doğrulananı kabul et
         for (const cand of candidates) {
           const verifiedMatches = data.filter(item => 
             verifyLyricsMatch(cand.artist, cand.title, duration, item)
@@ -322,6 +307,13 @@ const usePlayerStore = create((set, get) => ({
   history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
   lyrics: [], isLyricsLoading: false, isVideoMode: false,
   nativeProgressInterval: null,
+
+  // --- ARKA PLAN / SES SİSTEMİ ÇEVİRİ DESTEĞİ ---
+  translatedLyrics: [],
+  isTranslationLoading: false,
+  showTranslation: false,
+  targetLanguage: localStorage.getItem('lyrics_target_language') || 'tr',
+  detectedLanguage: 'AUTO',
 
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
@@ -609,7 +601,6 @@ const usePlayerStore = create((set, get) => ({
     const state = get();
     const localData = state.downloadedSongs[song.id];
 
-    // Önce yerel/çevrimdışı veriyi kontrol et
     if (localData && localData.metadata?.lyrics?.length > 0) {
       set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
       return;
@@ -617,17 +608,12 @@ const usePlayerStore = create((set, get) => ({
     
     if (!navigator.onLine) { set({ lyrics: [], isLyricsLoading: false }); return; }
     
-    // Eski sözlerin hızlı geçişlerde ekranda kalmaması için anında temizle
     set({ lyrics: [], isLyricsLoading: true });
     
     try {
       const songDuration = song.duration || state.duration || 0;
-      
-      // Geliştirilmiş, çok aşamalı akıllı arama motorunu çağırıyoruz
       const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, songDuration);
       
-      // YARIŞ DURUMU (RACE CONDITION) KİLİDİ:
-      // İstek tamamlandığında, kullanıcı çoktan başka bir şarkıya geçmişse veriyi kaydetme.
       if (get().currentSong?.id !== song.id) {
         return;
       }
@@ -653,6 +639,60 @@ const usePlayerStore = create((set, get) => ({
       if (get().currentSong?.id === song.id) {
         set({ lyrics: [], isLyricsLoading: false });
       }
+    }
+  },
+
+  // --- AKILLI GOOGLE TRANSLATE ALTYAPISI ---
+  setTranslationActive: (val) => set({ showTranslation: val }),
+  
+  translateCurrentLyrics: async (targetLang) => {
+    const state = get();
+    const { lyrics, currentSong } = state;
+    if (!lyrics || lyrics.length === 0 || !currentSong) return;
+
+    set({ isTranslationLoading: true, targetLanguage: targetLang });
+    localStorage.setItem('lyrics_target_language', targetLang);
+
+    try {
+      const separator = " ||| ";
+      const combinedText = lyrics.map(l => l.text).join(separator);
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(combinedText)}`;
+      
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        
+        // Google'ın algıladığı orijinal dili alıyoruz (Örn: "en")
+        const detected = data[2] || 'AUTO';
+        
+        // Çevrilen satırları birleştirip ayraçla ayırıyoruz
+        let fullTranslatedText = "";
+        if (data[0] && Array.isArray(data[0])) {
+          fullTranslatedText = data[0].map(x => x[0]).join('');
+        }
+
+        const translatedLines = fullTranslatedText.split("|||").map(line => line.trim());
+
+        // Milisaniyelik zaman damgaları (time) korunarak yeni sözler eşleştirilir
+        const mapped = lyrics.map((lyric, idx) => ({
+          time: lyric.time,
+          text: translatedLines[idx] || lyric.text
+        }));
+
+        set({
+          translatedLyrics: mapped,
+          showTranslation: true,
+          detectedLanguage: detected.toUpperCase(),
+          isTranslationLoading: false
+        });
+      } else {
+        set({ isTranslationLoading: false });
+        toast.error("Çeviri motoru yanıt vermedi.");
+      }
+    } catch (err) {
+      console.error("Çeviri hatası:", err);
+      set({ isTranslationLoading: false });
+      toast.error("Sözler çevrilirken hata oluştu.");
     }
   },
 
@@ -772,7 +812,12 @@ const usePlayerStore = create((set, get) => ({
       currentIndex: index, isPlaying: true, currentTime: 0, 
       history: newHistory, historyCursor: newCursor, activeEngine: nextEngine,
       currentStreamUrl: streamUrlToAssign,
-      nativeProgressInterval: null
+      nativeProgressInterval: null,
+      
+      // YENİLİK: Her yeni şarkıya geçildiğinde çeviri durumlarını sıfırla
+      translatedLyrics: [],
+      showTranslation: false,
+      detectedLanguage: 'AUTO'
     });
 
     if (window.Capacitor && AudioPlayer && nextEngine === 'html5') {
@@ -791,8 +836,8 @@ const usePlayerStore = create((set, get) => ({
             await AudioPlayer.create({
               audioId: 'novision-track',
               audioSource: nativeSource,
-              friendlyTitle: currentSong.title,
-              artistName: currentSong.channel,
+              friendlyTitle: song.title,
+              artistName: song.channel,
               artworkSource: nativeArtwork,
               useForNotification: true,
               isBackgroundMusic: true,

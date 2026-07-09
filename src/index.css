@@ -874,3 +874,47 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   .sidebar-desktop { width: 220px; }
   .now-playing-panel.open:not(.fullscreen) { position: absolute; right: 0; top: 0; height: 100vh; height: 100dvh; z-index: 50; box-shadow: -10px 0 50px rgba(0,0,0,0.8); }
 }
+
+/* ========================================================
+   ŞARKI SÖZLERİ ÇEVİRİ MENÜSÜ GÖRSEL DÜZENLEMELERİ
+   ======================================================== */
+.translate-control-wrapper {
+  position: relative;
+}
+
+/* Çeviri etkinken butona hafif bir vurgu dalgalanması ekler */
+.translate-btn.active {
+  animation: pulseTranslate 2s infinite ease-in-out;
+}
+
+@keyframes pulseTranslate {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 42, 84, 0.3); }
+  70% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(255, 42, 84, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 42, 84, 0); }
+}
+
+.lang-badge {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lang-badge:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: white !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.lang-dropdown {
+  animation: popIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  overflow: hidden;
+}
+
+/* Çift satırlı çevirinin senkronizasyon pürüzsüzlüğü */
+.lyric-translation {
+  transition: color 0.25s ease, opacity 0.25s ease;
+  will-change: opacity, color;
+}
+
+/* PC ve Yatay Tablet Görünümünde Çeviri İkonunun Gizlenmesini Önler */
+.now-playing-panel.fullscreen .lyrics-header .translate-btn {
+  display: flex !important;
+}
