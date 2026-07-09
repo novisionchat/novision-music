@@ -737,7 +737,8 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     padding-right: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    align-items: center !}
+    align-items: center !important;
+  }
 
   /* Kayan yazı alanının merkezde durması ve taşmaması */
   .now-playing-panel.fullscreen .panel-info-text-container .marquee-container {
