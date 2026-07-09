@@ -29,6 +29,256 @@ const safeWriteJSON = async (Filesystem, Directory, path, data) => {
   catch (e) { console.error("Yazma hatası:", e); }
 };
 
+// --- YARDIMCI METADATA TEMİZLEME VE PARSE İŞLEVLERİ ---
+const cleanArtistName = (channel) => {
+  if (!channel) return "";
+  return channel
+    .replace(/\s*-\s*Topic$/gi, '')
+    .replace(/\s*VEVO$/gi, '')
+    .replace(/\s*Official$/gi, '')
+    .replace(/\s*Music$/gi, '')
+    .replace(/\s*Records$/gi, '')
+    .trim();
+};
+
+const cleanTrackTitle = (title) => {
+  if (!title) return "";
+  return title
+    .replace(/\s*[\(\[][^\)\]]*(official|video|audio|lyrics|lyric|hd|4k|mv|music|clip|prod|remix|feat|ft|visualizer|cover)[^\)\]]*[\)\]]/gi, '')
+    .replace(/\s*(official\s*video|official\s*audio|lyric\s*video|official\s*lyrics|clip\s*officiel|music\s*video|mv|visualizer|hd|4k)/gi, '')
+    .replace(/\s*-\s*Lyrics$/gi, '')
+    .replace(/\s*[\(\[]\s*[\)\]]/g, '')
+    .trim();
+};
+
+const parseSyncedLyrics = (syncedLyricsText) => {
+  if (!syncedLyricsText) return [];
+  const parsed = [];
+  const lines = syncedLyricsText.split('\n');
+  for (let line of lines) {
+    const match = line.match(/\[(\d+):(\d+)(?:\.(\d+))?\](.*)/);
+    if (match) {
+      const min = parseInt(match[1], 10);
+      const sec = parseInt(match[2], 10);
+      const msVal = match[3] ? parseInt(match[3], 10) : 0;
+      const msFactor = match[3] ? Math.pow(10, match[3].length) : 1000;
+      const time = min * 60 + sec + (msVal / msFactor);
+      const text = match[4].trim();
+      if (text) {
+        parsed.push({ time, text });
+      }
+    }
+  }
+  return parsed;
+};
+
+// --- KELİME BENZERLİK SKORU ALGORİTMASI (Overlap Coefficient) ---
+const getSimilarityScore = (str1, str2) => {
+  if (!str1 || !str2) return 0;
+  
+  const cleanAndSplit = (str) => {
+    return str
+      .toLowerCase()
+      .replace(/[^a-z0-9ıışşğğççööüü]/g, ' ') // Noktalama işaretlerini boşlukla değiştirerek kelimeleri korur
+      .split(/\s+/)
+      .filter(Boolean);
+  };
+
+  const words1 = cleanAndSplit(str1);
+  const words2 = cleanAndSplit(str2);
+  
+  const w1 = new Set(words1);
+  const w2 = new Set(words2);
+  
+  if (w1.size === 0 || w2.size === 0) return 0;
+  
+  let intersection = 0;
+  for (let w of w1) {
+    if (w2.has(w)) intersection++;
+  }
+  
+  return intersection / Math.min(w1.size, w2.size);
+};
+
+// --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
+const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, result) => {
+  if (!result) return false;
+  
+  const returnedArtist = result.artistName;
+  const returnedTitle = result.trackName;
+  const returnedDuration = result.duration;
+
+  // 1. Süre Güvenlik Duvarı: Eğer süre bilgisi varsa, ±25 saniye tolerans uygula.
+  if (searchedDuration > 0 && returnedDuration > 0) {
+    const diff = Math.abs(searchedDuration - returnedDuration);
+    if (diff > 25) {
+      return false; 
+    }
+  }
+
+  // 2. Metinsel Benzerlik Kontrolü
+  const titleScore = getSimilarityScore(searchedTitle, returnedTitle);
+  const artistScore = getSimilarityScore(searchedArtist, returnedArtist);
+
+  // Şarkı adı için yüksek benzerlik (>= 0.75), sanatçı adı için makul benzerlik (>= 0.5) arıyoruz.
+  if (titleScore >= 0.75 && artistScore >= 0.5) {
+    return true;
+  }
+
+  return false;
+};
+
+// --- AKILLI ÇOKLU ADAY ÜRETİCİSİ (Yayıncı kanal problemlerini çözer) ---
+const getCandidatePairs = (channel, title) => {
+  const pairs = [];
+  
+  const rawChannelClean = cleanArtistName(channel);
+  const rawTitleClean = cleanTrackTitle(title);
+  
+  // 1. Aday: Standart Eşleşme (Kanal Adı = Sanatçı, Video Başlığı = Şarkı)
+  pairs.push({ artist: rawChannelClean, title: rawTitleClean });
+  
+  // Video başlığında tire işareti arayarak Sanatçı - Şarkı ayrımı yapıyoruz
+  const dashRegex = /\s*[-–—]\s*/;
+  if (dashRegex.test(rawTitleClean)) {
+    const parts = rawTitleClean.split(dashRegex);
+    if (parts.length >= 2) {
+      const part1 = parts[0];
+      const part2 = parts.slice(1).join(' - '); // Diğer kısımları tire ile birleştir
+      
+      const cleanPart1 = cleanArtistName(part1);
+      const cleanPart2 = cleanTrackTitle(part2);
+      
+      if (cleanPart1 && cleanPart2) {
+        // 2. Aday: Ayrıştırılmış Eşleşme (Sol taraf Sanatçı, Sağ taraf Şarkı)
+        pairs.push({ artist: cleanPart1, title: cleanPart2 });
+        // 3. Aday: Ters Ayrıştırılmış Eşleşme
+        pairs.push({ artist: cleanPart2, title: cleanPart1 });
+      }
+    }
+  }
+  
+  // Mükerrer veya boş adayları temizle
+  const uniquePairs = [];
+  const seen = new Set();
+  for (const p of pairs) {
+    if (!p.artist || !p.title) continue;
+    const key = `${p.artist.toLowerCase()}|||${p.title.toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniquePairs.push(p);
+    }
+  }
+  
+  return uniquePairs;
+};
+
+// --- GELİŞTİRİLMİŞ ÇOK AŞAMALI ŞARKI SÖZÜ MOTORU ---
+const fetchLyricsFromLrcLib = async (channel, title, duration) => {
+  const userAgent = 'NovisionMusic v1.0.0 (https://github.com/novision/music)';
+  const candidates = getCandidatePairs(channel, title);
+  
+  // 1. AŞAMA: Tüm adaylar için süre tabanlı arama (/api/get)
+  if (duration && duration > 0) {
+    for (const cand of candidates) {
+      try {
+        const getUrl = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(cand.artist)}&track_name=${encodeURIComponent(cand.title)}&duration=${Math.round(duration)}`;
+        const getRes = await fetch(getUrl, { headers: { 'User-Agent': userAgent } });
+        if (getRes.ok) {
+          const data = await getRes.json();
+          if (data && (data.syncedLyrics || data.plainLyrics || data.instrumental)) {
+            // Sunucu eşleşmesini yerel olarak doğrula
+            if (verifyLyricsMatch(cand.artist, cand.title, duration, data)) {
+              return data;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`Lrclib /api/get adayı için başarısız (${cand.artist} - ${cand.title}):`, e);
+      }
+    }
+  }
+
+  // 2. AŞAMA: Tüm adaylar için yapılandırılmış arama (/api/search?track_name=&artist_name=)
+  for (const cand of candidates) {
+    try {
+      const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.title)}&artist_name=${encodeURIComponent(cand.artist)}`;
+      const searchRes = await fetch(searchUrl, { headers: { 'User-Agent': userAgent } });
+      if (searchRes.ok) {
+        const data = await searchRes.json();
+        if (data && data.length > 0) {
+          // Yalancı eşleşmeleri sıkı doğrulamadan geçirerek filtrele
+          const verifiedMatches = data.filter(item => 
+            verifyLyricsMatch(cand.artist, cand.title, duration, item)
+          );
+          
+          if (verifiedMatches.length > 0) {
+            let bestMatch = verifiedMatches.find(item => item.syncedLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches.find(item => item.plainLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches[0];
+            return bestMatch;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Lrclib yapılandırılmış arama adayı için başarısız (${cand.artist} - ${cand.title}):`, e);
+    }
+  }
+
+  // 3. AŞAMA: Tüm adaylar için genel fuzzy araması (/api/search?q=)
+  for (const cand of candidates) {
+    try {
+      const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cand.artist + " " + cand.title)}`;
+      const queryRes = await fetch(queryUrl, { headers: { 'User-Agent': userAgent } });
+      if (queryRes.ok) {
+        const data = await queryRes.json();
+        if (data && data.length > 0) {
+          const verifiedMatches = data.filter(item => 
+            verifyLyricsMatch(cand.artist, cand.title, duration, item)
+          );
+          
+          if (verifiedMatches.length > 0) {
+            let bestMatch = verifiedMatches.find(item => item.syncedLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches.find(item => item.plainLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches[0];
+            return bestMatch;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Lrclib fuzzy arama adayı için başarısız (${cand.artist} - ${cand.title}):`, e);
+    }
+  }
+
+  // 4. AŞAMA: Fallback (Kanal adı çöpse ve tireli yapı varsa, sadece şarkı isminin tamamını arat)
+  try {
+    const rawTitleClean = cleanTrackTitle(title);
+    const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(rawTitleClean)}`;
+    const queryRes = await fetch(queryUrl, { headers: { 'User-Agent': userAgent } });
+    if (queryRes.ok) {
+      const data = await queryRes.json();
+      if (data && data.length > 0) {
+        // Fallback aramasında, aday split çiftlerinden herhangi biriyle doğrulananı kabul et
+        for (const cand of candidates) {
+          const verifiedMatches = data.filter(item => 
+            verifyLyricsMatch(cand.artist, cand.title, duration, item)
+          );
+          if (verifiedMatches.length > 0) {
+            let bestMatch = verifiedMatches.find(item => item.syncedLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches.find(item => item.plainLyrics);
+            if (!bestMatch) bestMatch = verifiedMatches[0];
+            return bestMatch;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Lrclib fallback sadece başlık araması başarısız:", e);
+  }
+
+  return null;
+};
+
 const usePlayerStore = create((set, get) => ({
   currentSong: null, queue: [], currentIndex: -1, isPlaying: false,
   volume: 100, currentTime: 0, duration: 0, 
@@ -256,19 +506,22 @@ const usePlayerStore = create((set, get) => ({
 
             let fetchedLyrics = [];
             try {
-              let cleanTitle = song.title.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/official|video|audio|lyrics|lyric|hd|4k|mv|music/gi, '').trim();
-              let artist = song.channel.replace(/ - Topic|VEVO/gi, '').trim();
-              const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(artist + " " + cleanTitle)}`);
-              if(res.ok) {
-                const data = await res.json();
-                if (data && data[0]?.syncedLyrics) {
-                  data[0].syncedLyrics.split('\n').forEach(line => {
-                    const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
-                    if (match && match[4].trim()) fetchedLyrics.push({ time: parseInt(match[1])*60 + parseInt(match[2]) + (parseInt(match[3])/(match[3].length===2?100:1000)), text: match[4].trim() });
+              const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, song.duration || 0);
+              
+              if (lyricsData) {
+                if (lyricsData.instrumental) {
+                  fetchedLyrics = [{ time: 0, text: "✦ Enstrümantal ✦" }];
+                } else if (lyricsData.syncedLyrics) {
+                  fetchedLyrics = parseSyncedLyrics(lyricsData.syncedLyrics);
+                } else if (lyricsData.plainLyrics) {
+                  lyricsData.plainLyrics.split('\n').forEach((line, idx) => {
+                    if (line.trim()) fetchedLyrics.push({ time: idx * 999999, text: line.trim() });
                   });
                 }
               }
-            } catch(e) {}
+            } catch (e) {
+              console.error("İndirme sırasında söz alınamadı:", e);
+            }
 
             let localAudioUrl = ""; let localThumbUrl = null;
             let localNativeUrl = "";
@@ -355,26 +608,52 @@ const usePlayerStore = create((set, get) => ({
   fetchLyrics: async (song) => {
     const state = get();
     const localData = state.downloadedSongs[song.id];
+
+    // Önce yerel/çevrimdışı veriyi kontrol et
     if (localData && localData.metadata?.lyrics?.length > 0) {
       set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
       return;
     }
+    
     if (!navigator.onLine) { set({ lyrics: [], isLyricsLoading: false }); return; }
+    
+    // Eski sözlerin hızlı geçişlerde ekranda kalmaması için anında temizle
     set({ lyrics: [], isLyricsLoading: true });
+    
     try {
-      let cleanTitle = song.title.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '').replace(/official|video|audio|lyrics|lyric|hd|4k|mv|music/gi, '').trim();
-      let artist = song.channel.replace(/ - Topic|VEVO/gi, '').trim();
-      const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(artist + " " + cleanTitle)}`);
-      const data = await res.json();
-      if (data && data[0]?.syncedLyrics) {
-        const parsed = [];
-        data[0].syncedLyrics.split('\n').forEach(line => {
-          const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
-          if(match && match[4].trim()) parsed.push({time: parseInt(match[1])*60 + parseInt(match[2]) + (parseInt(match[3])/(match[3].length===2?100:1000)), text: match[4].trim()});
-        });
+      const songDuration = song.duration || state.duration || 0;
+      
+      // Geliştirilmiş, çok aşamalı akıllı arama motorunu çağırıyoruz
+      const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, songDuration);
+      
+      // YARIŞ DURUMU (RACE CONDITION) KİLİDİ:
+      // İstek tamamlandığında, kullanıcı çoktan başka bir şarkıya geçmişse veriyi kaydetme.
+      if (get().currentSong?.id !== song.id) {
+        return;
+      }
+
+      if (lyricsData) {
+        let parsed = [];
+        if (lyricsData.instrumental) {
+          parsed = [{ time: 0, text: "✦ Enstrümantal ✦" }];
+        } else if (lyricsData.syncedLyrics) {
+          parsed = parseSyncedLyrics(lyricsData.syncedLyrics);
+        } else if (lyricsData.plainLyrics) {
+          lyricsData.plainLyrics.split('\n').forEach((line, idx) => {
+            if (line.trim()) {
+              parsed.push({ time: idx * 999999, text: line.trim() });
+            }
+          });
+        }
         set({ lyrics: parsed, isLyricsLoading: false });
-      } else { set({ lyrics: [], isLyricsLoading: false }); }
-    } catch(e) { set({ lyrics: [], isLyricsLoading: false }); }
+      } else {
+        set({ lyrics: [], isLyricsLoading: false });
+      }
+    } catch(e) {
+      if (get().currentSong?.id === song.id) {
+        set({ lyrics: [], isLyricsLoading: false });
+      }
+    }
   },
 
   handleAppStateChange: async (isActive) => {
@@ -512,8 +791,8 @@ const usePlayerStore = create((set, get) => ({
             await AudioPlayer.create({
               audioId: 'novision-track',
               audioSource: nativeSource,
-              friendlyTitle: song.title,
-              artistName: song.channel,
+              friendlyTitle: currentSong.title,
+              artistName: currentSong.channel,
               artworkSource: nativeArtwork,
               useForNotification: true,
               isBackgroundMusic: true,
@@ -575,7 +854,6 @@ const usePlayerStore = create((set, get) => ({
 
     get().fetchLyrics(song);
 
-    // DÜZELTME: Mükerrer (aynı) şarkı dinlendiğinde geçmişte en sona (Home.jsx reverse ettiği için en başa) gidecek algoritma!
     if (auth.currentUser && navigator.onLine) {
       const recentRef = ref(db, `users/${auth.currentUser.uid}/recentSongs`);
       firebaseGet(recentRef).then((snap) => {

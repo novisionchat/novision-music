@@ -185,65 +185,50 @@ img {
 .now-playing-panel { position: relative; width: 0; background-color: var(--bg-panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s; overflow: hidden; z-index: 10; padding: 0; }
 .now-playing-panel.open { width: 340px; padding: 20px; padding-bottom: 110px; }
 
-/* OPTİMİZE EDİLMİŞ DİNAMİK ARKA PLAN KAPSAYICISI (SIFIR YENİDEN BOYAMA / ZERO REPAINT) */
+/* ULTRA-ESTETİK VE SIFIR KAYIPLI AMBİYANS ARKA PLANI */
 .ambient-bg { 
   position: absolute; 
   top: 0; 
   left: 0; 
   width: 100%; 
   height: 100%; 
-  filter: blur(80px) saturate(220%) brightness(0.65); 
-  transform: translate3d(0, 0, 0); 
-  will-change: transform; 
-  opacity: 0.7; 
+  filter: blur(100px) saturate(240%) brightness(0.55); 
   z-index: 0; 
   pointer-events: none; 
   overflow: hidden;
   background-color: var(--bg-amoled);
 }
 
-/* GPU DESTEKLİ BULUT KÜRELERİ */
+/* GPU DOSTU VE PERFORMANS YEMEYEN HİBRİT BULUT KÜRELERİ (Mükemmel Ortalanma) */
 .ambient-blob {
   position: absolute;
-  width: 250px;
-  height: 250px;
   border-radius: 50%;
-  opacity: 0.55;
-  mix-blend-mode: screen;
-  will-change: transform;
-}
-.ambient-blob.color-1 {
-  top: -50px; left: -50px;
-  animation: floatBlob1 18s infinite alternate ease-in-out;
-}
-.ambient-blob.color-2 {
-  top: -50px; right: -50px;
-  animation: floatBlob2 22s infinite alternate ease-in-out;
-}
-.ambient-blob.color-3 {
-  bottom: -50px; right: -50px;
-  animation: floatBlob3 20s infinite alternate ease-in-out;
-}
-.ambient-blob.color-4 {
-  bottom: -50px; left: -50px;
-  animation: floatBlob4 25s infinite alternate ease-in-out;
+  opacity: 0.45;
+  width: 80vw;
+  height: 80vw;
+  max-width: 700px;
+  max-height: 700px;
+  transform: translate3d(0, 0, 0);
+  /* Şarkı değiştiğinde renklerin yumuşak geçişi için akıcı transition. Çalma esnasında render sıfırdır. */
+  transition: background-color 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: background-color;
 }
 
-@keyframes floatBlob1 {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(80px, 60px, 0) scale(1.3); }
+.ambient-blob.color-1 {
+  top: -20%;
+  left: -20%;
 }
-@keyframes floatBlob2 {
-  0% { transform: translate3d(0, 0, 0) scale(1.2); }
-  100% { transform: translate3d(-90px, 80px, 0) scale(0.95); }
+.ambient-blob.color-2 {
+  top: -20%;
+  right: -20%;
 }
-@keyframes floatBlob3 {
-  0% { transform: translate3d(0, 0, 0) scale(0.9); }
-  100% { transform: translate3d(-60px, -90px, 0) scale(1.35); }
+.ambient-blob.color-3 {
+  bottom: -20%;
+  right: -20%;
 }
-@keyframes floatBlob4 {
-  0% { transform: translate3d(0, 0, 0) scale(1.25); }
-  100% { transform: translate3d(90px, -70px, 0) scale(1); }
+.ambient-blob.color-4 {
+  bottom: -20%;
+  left: -20%;
 }
 
 .ambient-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(18,18,18,0.9) 60%, rgba(18,18,18,1) 100%); z-index: 0; pointer-events: none; }
@@ -301,7 +286,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .lyrics-content::-webkit-scrollbar { display: none; }
 .lyrics-content { scrollbar-width: none; }
 
-/* DÜZELTME: inline-block yerine block yapılarak satırların yan yana dizilmesi önlendi */
+/* inline-block yerine block yapılarak satırların yan yana dizilmesi önlendi */
 .lyric-line { 
   font-size: 22px; 
   font-weight: 700; 
@@ -752,8 +737,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     padding-right: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    align-items: center !important;
-  }
+    align-items: center !}
 
   /* Kayan yazı alanının merkezde durması ve taşmaması */
   .now-playing-panel.fullscreen .panel-info-text-container .marquee-container {

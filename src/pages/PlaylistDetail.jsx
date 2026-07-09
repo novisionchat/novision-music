@@ -12,6 +12,174 @@ import usePlayerStore from '../store/usePlayerStore';
 import { getTrendings } from '../utils/youtubeApi';
 import toast from 'react-hot-toast';
 
+// --- LEVENSHTEIN HARF MESAFESİ HESAPLAYICI ---
+const getLevenshteinDistance = (s1, s2) => {
+  if (s1 === s2) return 0;
+  if (s1.length === 0) return s2.length;
+  if (s2.length === 0) return s1.length;
+
+  let prevRow = Array(s2.length + 1);
+  let currRow = Array(s2.length + 1);
+
+  for (let j = 0; j <= s2.length; j++) {
+    prevRow[j] = j;
+  }
+
+  for (let i = 1; i <= s1.length; i++) {
+    currRow[0] = i;
+    for (let j = 1; j <= s2.length; j++) {
+      const cost = s1.charAt(i - 1) === s2.charAt(j - 1) ? 0 : 1;
+      currRow[j] = Math.min(
+        currRow[j - 1] + 1, // harf ekleme
+        prevRow[j] + 1,     // harf silme
+        prevRow[j - 1] + cost // harf değiştirme
+      );
+    }
+    // Satırları takas et
+    const temp = prevRow;
+    prevRow = currRow;
+    currRow = temp;
+  }
+
+  return prevRow[s2.length];
+};
+
+// --- TÜRKÇE KARAKTER VE NOKTALAMA NORMALİZASYONU ---
+const normalizeTurkish = (str) => {
+  if (!str) return "";
+  return str
+    .replace(/Ğ/g, 'g')
+    .replace(/ğ/g, 'g')
+    .replace(/Ü/g, 'u')
+    .replace(/ü/g, 'u')
+    .replace(/Ş/g, 's')
+    .replace(/ş/g, 's')
+    .replace(/I/g, 'i')
+    .replace(/ı/g, 'i')
+    .replace(/İ/g, 'i')
+    .replace(/i/g, 'i')
+    .replace(/Ö/g, 'o')
+    .replace(/ö/g, 'o')
+    .replace(/Ç/g, 'c')
+    .replace(/ç/g, 'c')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gi, ' ') // Alfanümerik dışındaki tüm karakterleri boşluğa çevirir
+    .trim();
+};
+
+// --- AKILLI VE PUANLI ARAMA ALGORİTMASI ---
+const calculateSearchScore = (title, channel, query) => {
+  if (!query) return 1;
+  if (!title) title = "";
+  if (!channel) channel = "";
+
+  const normTitle = normalizeTurkish(title);
+  const normChannel = normalizeTurkish(channel);
+  const normQuery = normalizeTurkish(query);
+
+  const qTokens = normQuery.split(/\s+/).filter(Boolean);
+  const tTokens = normTitle.split(/\s+/).filter(Boolean);
+  const cTokens = normChannel.split(/\s+/).filter(Boolean);
+  const allTokens = [...tTokens, ...cTokens];
+
+  if (qTokens.length === 0) return 1;
+
+  // 1. TAM SÖZCÜK GRUBU EŞLEŞMESİ (En yüksek öncelik)
+  const exactTitleIndex = normTitle.indexOf(normQuery);
+  if (exactTitleIndex === 0) {
+    // Tam şarkı adı sorguyla başlıyor (Örn: "Baneva" yazınca "Baneva" en üstte çıkmalı)
+    return 5000 - title.length / 10;
+  } else if (exactTitleIndex > 0) {
+    // Şarkı adı sorguyu tam içeriyor
+    return 4000 - exactTitleIndex - title.length / 10;
+  }
+
+  const exactChannelIndex = normChannel.indexOf(normQuery);
+  if (exactChannelIndex === 0) {
+    // Sanatçı/Kanal adı sorguyla başlıyor
+    return 3000 - channel.length / 10;
+  } else if (exactChannelIndex > 0) {
+    // Sanatçı/Kanal adı sorguyu içeriyor
+    return 2000 - exactChannelIndex - channel.length / 10;
+  }
+
+  // 2. KELİME DÜZEYİNDE DETAYLI YAZIM HATASI VE BENZERLİK ANALİZİ
+  let matchedTokensCount = 0;
+  let totalTokenScore = 0;
+
+  for (const qToken of qTokens) {
+    let bestTokenScore = 0;
+    
+    for (const tToken of allTokens) {
+      if (tToken === qToken) {
+        bestTokenScore = Math.max(bestTokenScore, 1000);
+      } else if (tToken.startsWith(qToken)) {
+        bestTokenScore = Math.max(bestTokenScore, 800);
+      } else if (tToken.includes(qToken)) {
+        bestTokenScore = Math.max(bestTokenScore, 500);
+      } else {
+        // PERFORMANS OPTİMİZASYONU: Yazım hatası toleransı yalnızca 2 harften uzun kelimelerde tetiklenir
+        if (qToken.length > 2) {
+          const lenDiff = Math.abs(tToken.length - qToken.length);
+          if (lenDiff <= 3) {
+            const dist = getLevenshteinDistance(qToken, tToken);
+            // 5 harften kısaysa max 1, uzunsa max 2 harf hatasını kabul et (Örn: gubes -> gunes uyuşur)
+            const maxAllowed = qToken.length <= 5 ? 1 : 2;
+            if (dist <= maxAllowed) {
+              const sim = 1 - (dist / Math.max(qToken.length, tToken.length));
+              bestTokenScore = Math.max(bestTokenScore, Math.round(sim * 300));
+            }
+          }
+        }
+      }
+    }
+
+    if (bestTokenScore > 0) {
+      matchedTokensCount++;
+      totalTokenScore += bestTokenScore;
+    }
+  }
+
+  // Sorgudaki tüm kelimelerin şarkıda bir karşılığı/benzeri olmalıdır
+  if (matchedTokensCount === qTokens.length) {
+    return totalTokenScore;
+  }
+
+  return 0; // Alakasız şarkılar elenir
+};
+
+// --- YENİLİK: İZOLE VE PERFORMANS CANAVARI ARAMA KUTUSU (0% RE-RENDER COST) ---
+const SearchBox = React.memo(({ onSearchChange, defaultValue }) => {
+  const [localVal, setLocalVal] = useState(defaultValue || "");
+
+  // Dışarıdan gelen sıfırlama işlemlerini dinler
+  useEffect(() => {
+    setLocalVal(defaultValue || "");
+  }, [defaultValue]);
+
+  // Yazmayı bıraktıktan 300ms sonra ana sayfaya sinyal gönderir
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onSearchChange(localVal);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [localVal, onSearchChange]);
+
+  return (
+    <div className="playlist-search-box">
+      <MdSearch size={22} color="var(--text-muted)" />
+      <input 
+        type="text" 
+        placeholder="Listede şarkı bul..." 
+        value={localVal} 
+        onChange={(e) => setLocalVal(e.target.value)} 
+      />
+    </div>
+  );
+});
+SearchBox.displayName = 'SearchBox';
+
 const MarqueeText = ({ text, style }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
@@ -108,7 +276,10 @@ const PlaylistDetail = () => {
   const [sortOrder, setSortOrder] = useState(localStorage.getItem('novision_playlist_sort') || 'oldest');
   
   const [isSortOpen, setIsSortOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  
+  // ARAMA SORGUSU (Sadece yazma bittiğinde güncellenir ve re-render tetikler)
+  const [searchQuery, setSearchQuery] = useState(""); 
+  
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
   const [isAddedToLibrary, setIsAddedToLibrary] = useState(false);
@@ -118,9 +289,9 @@ const PlaylistDetail = () => {
   const isLocal = id.startsWith('local_');
   const isDownloadedFolder = id === 'downloaded';
   const isLiked = id === 'liked';
-  const isTrendTR = id === 'trend_tr';
+  const iTrendTR = id === 'trend_tr';
   const isTrendGlobal = id === 'trend_global';
-  const isTrend = isTrendTR || isTrendGlobal;
+  const isTrend = iTrendTR || isTrendGlobal;
   
   const isMyPlaylist = isLocal || (user && ownerId === user.uid);
   const canEdit = !isDownloadedFolder && !isLiked && !isTrend && isMyPlaylist && !playlist?.readonly;
@@ -136,7 +307,7 @@ const PlaylistDetail = () => {
       setPlaylist({ name: 'Beğenilen Şarkılar', songs: likedSongs });
       setSongs(likedSongs);
       setEditNameValue('Beğenilen Şarkılar');
-    } else if (isTrendTR) {
+    } else if (iTrendTR) {
       getTrendings('TR').then(data => { setPlaylist({ name: 'Türkiye Trendleri', songs: data }); setSongs(data); setEditNameValue('Türkiye Trendleri'); });
     } else if (isTrendGlobal) {
       getTrendings('US').then(data => { setPlaylist({ name: 'Global Trendler', songs: data }); setSongs(data); setEditNameValue('Global Trendler'); });
@@ -205,7 +376,7 @@ const PlaylistDetail = () => {
         updateLocalPlaylistName(id, editNameValue);
         setPlaylist(prev => ({ ...prev, name: editNameValue }));
       }
-    } else {
+    } else if (user && navigator.onLine) {
       await set(ref(db, `users/${user.uid}/playlists/${id}/songs`), songs);
       if (editNameValue.trim() !== "" && editNameValue !== playlist.name) {
         setPlaylist(prev => ({ ...prev, name: editNameValue }));
@@ -227,8 +398,8 @@ const PlaylistDetail = () => {
     
     updatePlaylistLastPlayed(id, isLocal, user);
     
-    if (user && isMyPlaylist && navigator.onLine && !isLocal && !isDownloadedFolder && !isLiked && !isTrend) {
-      await set(ref(db, `users/${user.uid}/recentPlaylist`), { id: id, name: playlist.name, thumbnail: downloadedSongs[songs[0]?.id]?.localThumbUrl || songs[0]?.thumbnail || '/icon.png' });
+    if (user && navigator.onLine) {
+      await firebaseSet(ref(db, `users/${user.uid}/playlists/${playlist.id}/lastPlayed`), Date.now());
     }
   };
 
@@ -237,20 +408,23 @@ const PlaylistDetail = () => {
     updatePlaylistLastPlayed(id, isLocal, user);
   };
 
-  const toggleSelectSong = (songId) => setSelectedSongs(prev => prev.includes(songId) ? prev.filter(id => id !== songId) : [...prev, songId]);
-  const handleSelectAll = () => setSelectedSongs(songs.filter(s => !downloadedSongs[s.id]).map(s => s.id));
-  const handleUnselectAll = () => setSelectedSongs([]);
-
-  const handleStartBulkDownload = () => {
-    const songsToDownload = songs.filter(s => selectedSongs.includes(s.id));
-    if (songsToDownload.length === 0) return;
-    addToDownloadQueueList(songsToDownload);
-    setIsDownloadMode(false); setSelectedSongs([]);
-  };
-
   const safeSongs = Array.isArray(songs) ? songs : [];
-  const filteredSongs = safeSongs.filter(s => s.title?.toLowerCase().includes(searchQuery.toLowerCase()) || s.channel?.toLowerCase().includes(searchQuery.toLowerCase()));
-  const displaySongs = sortOrder === 'newest' ? [...filteredSongs].reverse() : filteredSongs;
+  
+  // --- AKILLI VE SIRALANMIŞ GECİKMELİ (DEBOUNCED) ARAMA ENTEGRASYONU ---
+  let displaySongs = [];
+  if (searchQuery.trim() !== "") {
+    const scoredSongs = safeSongs
+      .map(song => ({
+        song,
+        score: calculateSearchScore(song.title, song.channel, searchQuery)
+      }))
+      .filter(item => item.score > 0);
+    
+    scoredSongs.sort((a, b) => b.score - a.score);
+    displaySongs = scoredSongs.map(item => item.song);
+  } else {
+    displaySongs = sortOrder === 'newest' ? [...safeSongs].reverse() : safeSongs;
+  }
 
   if (!playlist) return <div style={{ color: 'gray', padding: '20px' }}>Yükleniyor...</div>;
 
@@ -350,10 +524,8 @@ const PlaylistDetail = () => {
       </div>
 
       {!isEditMode && !isDownloadMode && safeSongs.length > 5 && (
-        <div className="playlist-search-box">
-          <MdSearch size={22} color="var(--text-muted)" />
-          <input type="text" placeholder="Listede şarkı bul..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
+        /* YENİLİK: Tamamen izole edilmiş, parent re-render tetiklemeyen akıllı arama kutusu */
+        <SearchBox defaultValue={searchQuery} onSearchChange={setSearchQuery} />
       )}
 
       {downloadQueueList.length > 0 && (
@@ -361,8 +533,8 @@ const PlaylistDetail = () => {
       )}
 
       <div className="playlist-songs">
-        {safeSongs.length === 0 ? (
-          <p style={{ color: 'gray', marginTop: '20px' }}>Bu liste boş.</p>
+        {displaySongs.length === 0 ? (
+          <p style={{ color: 'gray', margin: '30px 0', textAlign: 'center' }}>Aranan kritere uygun şarkı bulunamadı.</p>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
             <Droppable droppableId="songs" isDropDisabled={!isEditMode || isDownloadMode || searchQuery !== ""}>
@@ -374,7 +546,6 @@ const PlaylistDetail = () => {
                     const isSongDownloading = downloadQueue.includes(song.id);
                     const isSongInWaitQueue = downloadQueueList.some(q => q.id === song.id);
 
-                    // DÜZELTME: Çevrimiçiyken her zaman canlı YouTube görseli gösterilir; çevrimdışıyken yerel görsel çağrılır.
                     const rowThumb = (isOfflineMode && downloadedSongs[song.id]?.localThumbUrl)
                                      ? downloadedSongs[song.id].localThumbUrl
                                      : (song.thumbnail || '')
