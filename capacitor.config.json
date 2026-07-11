@@ -6,5 +6,15 @@
     "androidScheme": "https",
     "cleartext": true,
     "allowNavigation": ["*"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "keepRunning": true
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#FF2A54"
+    }
   }
 }

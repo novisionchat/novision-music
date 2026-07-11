@@ -148,7 +148,7 @@ const calculateSearchScore = (title, channel, query) => {
   return 0; // Alakasız şarkılar elenir
 };
 
-// --- YENİLİK: İZOLE VE PERFORMANS CANAVARI ARAMA KUTUSU (0% RE-RENDER COST) ---
+// --- İZOLE VE PERFORMANS CANAVARI ARAMA KUTUSU (0% RE-RENDER COST) ---
 const SearchBox = React.memo(({ onSearchChange, defaultValue }) => {
   const [localVal, setLocalVal] = useState(defaultValue || "");
 
@@ -399,13 +399,45 @@ const PlaylistDetail = () => {
     updatePlaylistLastPlayed(id, isLocal, user);
     
     if (user && navigator.onLine) {
-      await firebaseSet(ref(db, `users/${user.uid}/playlists/${playlist.id}/lastPlayed`), Date.now());
+      // DÜZELTME: 'firebaseSet' hatası giderilip import edilmiş 'set' metoduna dönüştürüldü.
+      await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/lastPlayed`), Date.now());
     }
   };
 
   const handlePlaySong = (song, index) => {
     playSong(song, displaySongs, index);
     updatePlaylistLastPlayed(id, isLocal, user);
+  };
+
+  // --- TOPLU İNDİRME FONKSİYONLARI (Eklendi) ---
+  const handleSelectAll = () => {
+    // Sadece cihazda henüz indirilmemiş şarkıları seçebilmeliyiz
+    const unDownloadedIds = songs
+      .filter(song => !downloadedSongs[song.id])
+      .map(song => song.id);
+    setSelectedSongs(unDownloadedIds);
+  };
+
+  const handleUnselectAll = () => {
+    setSelectedSongs([]);
+  };
+
+  const toggleSelectSong = (songId) => {
+    setSelectedSongs(prev => 
+      prev.includes(songId) 
+        ? prev.filter(id => id !== songId) 
+        : [...prev, songId]
+    );
+  };
+
+  const handleStartBulkDownload = () => {
+    const songsToDownload = songs.filter(song => selectedSongs.includes(song.id));
+    if (songsToDownload.length > 0) {
+      addToDownloadQueueList(songsToDownload);
+      toast.success(`${songsToDownload.length} şarkı indirme sırasına eklendi.`);
+    }
+    setIsDownloadMode(false);
+    setSelectedSongs([]);
   };
 
   const safeSongs = Array.isArray(songs) ? songs : [];
@@ -524,7 +556,6 @@ const PlaylistDetail = () => {
       </div>
 
       {!isEditMode && !isDownloadMode && safeSongs.length > 5 && (
-        /* YENİLİK: Tamamen izole edilmiş, parent re-render tetiklemeyen akıllı arama kutusu */
         <SearchBox defaultValue={searchQuery} onSearchChange={setSearchQuery} />
       )}
 

@@ -72,7 +72,7 @@ const parseSyncedLyrics = (syncedLyricsText) => {
   return parsed;
 };
 
-// --- KELİME BENZERLİK SKORU ALGORİTMASI (Overlap Coefficient) ---
+// --- KELİME BENZERLİK SKORU ALGORİTMASI ---
 const getSimilarityScore = (str1, str2) => {
   if (!str1 || !str2) return 0;
   
@@ -100,7 +100,7 @@ const getSimilarityScore = (str1, str2) => {
   return intersection / Math.min(w1.size, w2.size);
 };
 
-// --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
+// --- SIKI DOĞRULAMA FİLTRESİ ---
 const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, result) => {
   if (!result) return false;
   
@@ -125,7 +125,7 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
   return false;
 };
 
-// --- AKILLI ÇOKLU ADAY ÜRETİCİSİ (Yayıncı kanal problemlerini çözer) ---
+// --- AKILLI ÇOKLU ADAY ÜRETİCİSİ ---
 const getCandidatePairs = (channel, title) => {
   const pairs = [];
   
@@ -265,10 +265,16 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
 };
 
 const usePlayerStore = create((set, get) => ({
-  currentSong: null, queue: [], currentIndex: -1, isPlaying: false,
-  volume: 100, currentTime: 0, duration: 0, 
+  currentSong: null, 
+  queue: [], 
+  currentIndex: -1, 
+  isPlaying: false,
+  volume: 100, 
+  currentTime: 0, 
+  duration: 0, 
   
-  playerRef: null, html5PlayerRef: null,  
+  playerRef: null, 
+  html5PlayerRef: null,  
   activeEngine: 'youtube', 
   downloadedSongs: {},
   downloadedMetadata: {}, 
@@ -276,7 +282,20 @@ const usePlayerStore = create((set, get) => ({
   isOfflineMode: !navigator.onLine, 
   currentStreamUrl: null, 
   
-  downloadQueue: [], downloadProgress: {}, downloadXHRs: {}, downloadQueueList: [],
+  downloadQueue: [], 
+  downloadProgress: {}, 
+  downloadXHRs: {}, 
+  downloadQueueList: [],
+
+  // --- AKILLI KARIŞIK ÇALMA VE ÖN YÜKLEME STATE TANIMLARI ---
+  shuffleOrder: [],
+  shuffleCursor: -1,
+  isPrefetched: false,
+  prefetchAudioObj: null,
+
+  // --- DEPOLAMA VE ÖNBELLEK STATE TANIMLARI ---
+  totalStorageSize: "0.0 MB",
+  downloadedFileSizes: {},
 
   // --- BEĞENİLENLER SİSTEMİ ---
   likedSongs: [],
@@ -300,12 +319,18 @@ const usePlayerStore = create((set, get) => ({
       await firebaseSet(ref(db, `users/${auth.currentUser.uid}/likedSongs`), newLiked);
     }
   },
-  // -----------------------------
 
-  isPanelOpen: false, isPanelFullscreen: false,
-  isShuffle: false, isRepeat: false,
-  history: [], historyCursor: -1, songToAdd: null, isAddModalOpen: false,
-  lyrics: [], isLyricsLoading: false, isVideoMode: false,
+  isPanelOpen: false, 
+  isPanelFullscreen: false,
+  isShuffle: false, 
+  isRepeat: false,
+  history: [], 
+  historyCursor: -1, 
+  songToAdd: null, 
+  isAddModalOpen: false,
+  lyrics: [], 
+  isLyricsLoading: false, 
+  isVideoMode: false,
   nativeProgressInterval: null,
 
   // --- ARKA PLAN / SES SİSTEMİ ÇEVİRİ DESTEĞİ ---
@@ -314,8 +339,6 @@ const usePlayerStore = create((set, get) => ({
   showTranslation: false,
   targetLanguage: localStorage.getItem('lyrics_target_language') || 'tr',
   detectedLanguage: 'AUTO',
-
-  // YENİLİK: Bekleyen şarkı sözü isteklerini yöneten zamanlayıcı referansı
   lyricsTimeoutId: null,
 
   setVideoMode: (val) => {
@@ -334,8 +357,209 @@ const usePlayerStore = create((set, get) => ({
   togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
   closePanel: () => set({ isPanelOpen: false, isPanelFullscreen: false }), 
   toggleFullscreen: () => set((state) => ({ isPanelFullscreen: !state.isPanelFullscreen })),
-  toggleShuffle: () => set((state) => ({ isShuffle: !state.isShuffle })),
   toggleRepeat: () => set((state) => ({ isRepeat: !state.isRepeat })),
+
+  // --- AKILLI KARIŞIK ÇALMA EYLEMLERİ ---
+  toggleShuffle: () => {
+    const state = get();
+    const nextShuffle = !state.isShuffle;
+    set({ isShuffle: nextShuffle });
+    if (nextShuffle && state.queue.length > 0) {
+      get().generateShuffleOrder(state.currentIndex);
+    } else {
+      set({ shuffleOrder: [], shuffleCursor: -1 });
+    }
+  },
+
+  generateShuffleOrder: (startingIndex = 0) => {
+    const { queue } = get();
+    if (queue.length === 0) return;
+    
+    let indices = Array.from({ length: queue.length }, (_, i) => i);
+    indices = indices.filter(idx => idx !== startingIndex);
+    
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    
+    const finalOrder = [startingIndex, ...indices];
+    set({ shuffleOrder: finalOrder, shuffleCursor: 0 });
+  },
+
+  // --- SONRAKİ ŞARKIYI ÖN YÜKLEME (PRE-FETCHING) ---
+  prefetchNextSong: async () => {
+    const state = get();
+    if (state.isPrefetched || !navigator.onLine) return;
+
+    let nextIndex = -1;
+    if (state.isShuffle) {
+      const nextCursor = state.shuffleCursor + 1;
+      if (nextCursor < state.shuffleOrder.length) {
+        nextIndex = state.shuffleOrder[nextCursor];
+      }
+    } else {
+      if (state.currentIndex < state.queue.length - 1) {
+        nextIndex = state.currentIndex + 1;
+      }
+    }
+
+    if (nextIndex === -1) return;
+    const nextSong = state.queue[nextIndex];
+    if (!nextSong) return;
+
+    if (state.downloadedSongs[nextSong.id]) return;
+
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const streamUrl = `${apiUrl}/api/download?id=${nextSong.id}`;
+
+    console.log(`🚀 Sonraki şarkı önceden yükleniyor: ${nextSong.title}`);
+
+    let audioObj = state.prefetchAudioObj;
+    if (!audioObj) {
+      audioObj = new Audio();
+      set({ prefetchAudioObj: audioObj });
+    }
+
+    audioObj.src = streamUrl;
+    audioObj.preload = "auto";
+    set({ isPrefetched: true });
+  },
+
+  // --- SIRADAKİ ŞARKILAR (QUEUE) SİSTEMİ ---
+  removeFromQueue: (index) => {
+    const { queue, currentIndex, playSong, isShuffle, shuffleOrder, shuffleCursor } = get();
+    if (queue.length <= 1) {
+      toast.error("Sıradaki son şarkıyı listeden çıkaramazsınız.");
+      return;
+    }
+    
+    const newQueue = [...queue];
+    newQueue.splice(index, 1);
+    
+    let newIndex = currentIndex;
+    if (index === currentIndex) {
+      newIndex = index >= newQueue.length ? 0 : index;
+    } else if (index < currentIndex) {
+      newIndex = currentIndex - 1;
+    }
+
+    if (isShuffle && shuffleOrder.length > 0) {
+      const positionInShuffle = shuffleOrder.indexOf(index);
+      let newShuffleOrder = shuffleOrder.filter(idx => idx !== index);
+      newShuffleOrder = newShuffleOrder.map(idx => idx > index ? idx - 1 : idx);
+      
+      let newShuffleCursor = shuffleCursor;
+      if (positionInShuffle === shuffleCursor) {
+        newShuffleCursor = shuffleCursor >= newShuffleOrder.length ? 0 : shuffleCursor;
+        const nextOriginalIndex = newShuffleOrder[newShuffleCursor];
+        set({ queue: newQueue, currentIndex: nextOriginalIndex, shuffleOrder: newShuffleOrder, shuffleCursor: newShuffleCursor });
+        playSong(newQueue[nextOriginalIndex], newQueue, nextOriginalIndex, true, true);
+      } else {
+        if (positionInShuffle < shuffleCursor) {
+          newShuffleCursor = shuffleCursor - 1;
+        }
+        set({ queue: newQueue, currentIndex: newIndex, shuffleOrder: newShuffleOrder, shuffleCursor: newShuffleCursor });
+      }
+    } else {
+      if (index === currentIndex) {
+        set({ queue: newQueue, currentIndex: newIndex });
+        playSong(newQueue[newIndex], newQueue, newIndex);
+      } else {
+        set({ queue: newQueue, currentIndex: newIndex });
+      }
+    }
+    
+    toast.success("Şarkı sıradan çıkarıldı.");
+  },
+
+  moveQueueItem: (fromIndex, direction) => {
+    const { queue, currentIndex, isShuffle, shuffleOrder, shuffleCursor } = get();
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
+    
+    if (isShuffle && shuffleOrder.length > 0) {
+      if (toIndex < 0 || toIndex >= shuffleOrder.length) return;
+      const newShuffleOrder = [...shuffleOrder];
+      const [moved] = newShuffleOrder.splice(fromIndex, 1);
+      newShuffleOrder.splice(toIndex, 0, moved);
+      
+      let newShuffleCursor = shuffleCursor;
+      if (shuffleCursor === fromIndex) {
+        newShuffleCursor = toIndex;
+      } else if (shuffleCursor === toIndex) {
+        newShuffleCursor = fromIndex;
+      }
+      
+      set({ shuffleOrder: newShuffleOrder, shuffleCursor: newShuffleCursor });
+    } else {
+      if (toIndex < 0 || toIndex >= queue.length) return;
+      const newQueue = [...queue];
+      const [movedItem] = newQueue.splice(fromIndex, 1);
+      newQueue.splice(toIndex, 0, movedItem);
+      
+      let newIndex = currentIndex;
+      if (currentIndex === fromIndex) {
+        newIndex = toIndex;
+      } else if (currentIndex === toIndex) {
+        newIndex = fromIndex;
+      }
+      set({ queue: newQueue, currentIndex: newIndex });
+    }
+  },
+
+  // --- DEPOLAMA BOYUTU VE TEMİZLEME KONTROLLERİ ---
+  calculateStorageSize: async () => {
+    const state = get();
+    const { downloadedSongs } = state;
+    let totalBytes = 0;
+    const sizes = {};
+
+    if (window.Capacitor) {
+      for (let id of Object.keys(downloadedSongs)) {
+        try {
+          const fileInfo = await Filesystem.stat({
+            path: `${id}.mp3`,
+            directory: Directory.Data
+          });
+          if (fileInfo && fileInfo.size) {
+            totalBytes += fileInfo.size;
+            sizes[id] = (fileInfo.size / (1024 * 1024)).toFixed(1) + " MB";
+          } else {
+            sizes[id] = "Bilinmiyor";
+          }
+        } catch (e) {
+          sizes[id] = "Bilinmiyor";
+        }
+      }
+    } else {
+      for (let id of Object.keys(downloadedSongs)) {
+        sizes[id] = "Yaklaşık 5.5 MB";
+        totalBytes += 5.5 * 1024 * 1024;
+      }
+    }
+
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+    set({ 
+      totalStorageSize: `${totalMB} MB`,
+      downloadedFileSizes: sizes
+    });
+  },
+
+  clearAllDownloads: async () => {
+    const state = get();
+    const ids = Object.keys(state.downloadedSongs);
+    if (ids.length === 0) {
+      toast.error("Temizlenecek indirme yok.");
+      return;
+    }
+
+    for (let id of ids) {
+      await state.deleteDownloadedSong(id);
+    }
+    
+    toast.success("Tüm indirmeler ve önbellek temizlendi!");
+    get().calculateStorageSize();
+  },
 
   initOfflineStorage: async () => {
     try {
@@ -398,6 +622,7 @@ const usePlayerStore = create((set, get) => ({
             }
           }
           set({ downloadedSongs: loadedSongs });
+          get().calculateStorageSize(); 
           console.log(`📦 [APK - Cihaz Hafızası] ${Object.keys(loadedSongs).length} çevrimdışı şarkı yüklendi.`);
         } catch (dirError) {
           console.warn("İndirilen müzik klasörü henüz boş:", dirError);
@@ -426,6 +651,7 @@ const usePlayerStore = create((set, get) => ({
             }
           }
           set({ downloadedSongs: loadedSongs });
+          get().calculateStorageSize(); 
           console.log(`📦 [TARAYICI - IndexedDB] ${Object.keys(loadedSongs).length} çevrimdışı şarkı Blob olarak yüklendi.`);
         } catch (webError) {
           console.error("Tarayıcı önbellek yükleme hatası:", webError);
@@ -448,7 +674,6 @@ const usePlayerStore = create((set, get) => ({
   updateLocalPlaylistName: (id, name) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, name } : pl)); },
   deleteLocalPlaylist: (id) => { get().saveLocalPlaylists(get().localPlaylists.filter(pl => pl.id !== id)); },
 
-  // ÇALMA LİSTESİ SON OYNATMA ZAMANINI GÜNCELLEME SİSTEMİ
   updatePlaylistLastPlayed: async (playlistId, isLocal, user) => {
     const now = Date.now();
     if (isLocal) {
@@ -562,6 +787,7 @@ const usePlayerStore = create((set, get) => ({
                 downloadQueue: s.downloadQueue.filter(id => id !== song.id), downloadXHRs: newXHRs
               };
             });
+            get().calculateStorageSize(); 
             resolve();
           } else { get().cancelDownload(song.id); reject(); }
         };
@@ -598,22 +824,20 @@ const usePlayerStore = create((set, get) => ({
       delete newDownloaded[id];
       return { downloadedSongs: newDownloaded, downloadedMetadata: updatedMetadata };
     });
+    get().calculateStorageSize(); 
   },
 
   fetchLyrics: async (song) => {
     const state = get();
 
-    // 1. Önceki şarkıdan kalan ve henüz başlamamış bir arama işlemi varsa iptal et
     if (state.lyricsTimeoutId) {
       clearTimeout(state.lyricsTimeoutId);
     }
 
-    // 2. Arayüzde eski şarkının sözlerinin kalmasını önlemek için anında sıfırla
     set({ lyrics: [], isLyricsLoading: true, lyricsTimeoutId: null });
 
     const localData = state.downloadedSongs[song.id];
 
-    // 3. Şarkı yerel hafızada indirilmiş durumdaysa, gecikme uygulamadan doğrudan yükle
     if (localData && localData.metadata?.lyrics?.length > 0) {
       set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
       return;
@@ -624,16 +848,13 @@ const usePlayerStore = create((set, get) => ({
       return; 
     }
     
-    // 4. Çevrimiçi şarkılar için 1.5 saniye (1500 ms) geciktirme başlatıyoruz
     const timeoutId = setTimeout(async () => {
-      // API isteği başlamadan hemen önce kullanıcının hala aynı şarkıda olup olmadığını doğrula
       if (get().currentSong?.id !== song.id) return;
 
       try {
         const songDuration = song.duration || get().duration || 0;
         const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, songDuration);
         
-        // Ağ isteği tamamlandığında kullanıcının hala aynı şarkıda olup olmadığını tekrar kontrol et
         if (get().currentSong?.id !== song.id) {
           return;
         }
@@ -660,13 +881,11 @@ const usePlayerStore = create((set, get) => ({
           set({ lyrics: [], isLyricsLoading: false });
         }
       }
-    }, 1500); // Hızlı şarkı atlamalarında API spam'ini önleyen 1.5 saniyelik güvenli süre
+    }, 1500);
 
-    // Oluşturulan zamanlayıcı ID'sini store'a kaydet (böylece sonraki geçişte temizlenebilecek)
     set({ lyricsTimeoutId: timeoutId });
   },
 
-  // --- AKILLI GOOGLE TRANSLATE ALTYAPISI ---
   setTranslationActive: (val) => set({ showTranslation: val }),
   
   translateCurrentLyrics: async (targetLang) => {
@@ -685,11 +904,8 @@ const usePlayerStore = create((set, get) => ({
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        
-        // Google'ın algıladığı orijinal dili alıyoruz (Örn: "en")
         const detected = data[2] || 'AUTO';
         
-        // Çevrilen satırları birleştirip ayraçla ayırıyoruz
         let fullTranslatedText = "";
         if (data[0] && Array.isArray(data[0])) {
           fullTranslatedText = data[0].map(x => x[0]).join('');
@@ -697,7 +913,6 @@ const usePlayerStore = create((set, get) => ({
 
         const translatedLines = fullTranslatedText.split("|||").map(line => line.trim());
 
-        // Milisaniyelik zaman damgaları (time) korunarak yeni sözler eşleştirilir
         const mapped = lyrics.map((lyric, idx) => ({
           time: lyric.time,
           text: translatedLines[idx] || lyric.text
@@ -802,7 +1017,7 @@ const usePlayerStore = create((set, get) => ({
     }
   },
 
-  playSong: (song, rawQueue = [], index = 0, fromHistory = false) => {
+  playSong: (song, rawQueue = [], index = 0, fromHistory = false, keepShuffle = false) => {
     const state = get();
     let newHistory = Array.isArray(state.history) ? [...state.history] : [];
     let newCursor = state.historyCursor !== undefined ? state.historyCursor : -1;
@@ -832,16 +1047,30 @@ const usePlayerStore = create((set, get) => ({
     if (state.nativeProgressInterval) clearInterval(state.nativeProgressInterval);
 
     set({ 
-      currentSong: song, queue: queue.length > 0 ? queue : [song], 
-      currentIndex: index, isPlaying: true, currentTime: 0, 
-      history: newHistory, historyCursor: newCursor, activeEngine: nextEngine,
+      currentSong: song, 
+      queue: queue.length > 0 ? queue : [song], 
+      currentIndex: index, 
+      isPlaying: true, 
+      currentTime: 0, 
+      history: newHistory, 
+      historyCursor: newCursor, 
+      activeEngine: nextEngine,
       currentStreamUrl: streamUrlToAssign,
       nativeProgressInterval: null,
-      
       translatedLyrics: [],
       showTranslation: false,
-      detectedLanguage: 'AUTO'
+      detectedLanguage: 'AUTO',
+      isPrefetched: false 
     });
+
+    if (get().isShuffle && queue.length > 0 && !keepShuffle) {
+      get().generateShuffleOrder(index);
+    } else if (get().isShuffle && keepShuffle) {
+      const cursor = get().shuffleOrder.indexOf(index);
+      if (cursor !== -1) {
+        set({ shuffleCursor: cursor });
+      }
+    }
 
     if (window.Capacitor && AudioPlayer && nextEngine === 'html5') {
         const runNativeAudio = async () => {
@@ -933,7 +1162,15 @@ const usePlayerStore = create((set, get) => ({
   },
 
   setPlaying: (status) => set({ isPlaying: status }),
-  setCurrentTime: (time) => set({ currentTime: time }),
+  
+  setCurrentTime: (time) => { 
+    set({ currentTime: time }); 
+    const state = get();
+    if (state.duration > 0 && (state.duration - time) <= 15 && !state.isPrefetched) {
+      get().prefetchNextSong();
+    }
+  },
+  
   setDuration: (time) => set({ duration: time }),
   
   setVolume: (val) => { 
@@ -984,21 +1221,26 @@ const usePlayerStore = create((set, get) => ({
 
   playNext: async () => {
     const state = get();
-    const { queue: rawQueue, currentIndex, isShuffle, isRepeat, history: rawHistory, historyCursor, playSong, _seekCurrentEngineToZero } = state;
+    const { queue: rawQueue, currentIndex, isShuffle, isRepeat, history: rawHistory, historyCursor, playSong, _seekCurrentEngineToZero, shuffleOrder, shuffleCursor } = state;
     const queue = Array.isArray(rawQueue) ? rawQueue : [];
     const history = Array.isArray(rawHistory) ? rawHistory : [];
 
     if (queue.length === 0) return;
     
+    // 1. GEÇMİŞ (HISTORY) İLERİ AKIŞI
     if (historyCursor < history.length - 1) {
       const nextCursor = historyCursor + 1; const nextSong = history[nextCursor];
       if(!nextSong) return;
       let idxInQueue = queue.findIndex(s => s.id === nextSong.id);
       if (idxInQueue === -1) { queue.push(nextSong); idxInQueue = queue.length - 1; }
-      playSong(nextSong, queue, idxInQueue, true); set({ historyCursor: nextCursor }); return;
+      
+      // ÇÖZÜM: playSong'un 5. parametresini true göndererek çalma listesini karıştırmadan mevcut yapıyı koruyoruz.
+      playSong(nextSong, queue, idxInQueue, true, true); 
+      set({ historyCursor: nextCursor }); 
+      return;
     }
     
-    if (isRepeat) { 
+    if (isRepeat && !isShuffle) { 
       _seekCurrentEngineToZero(); 
       const { activeEngine, playerRef, html5PlayerRef } = get();
       if (activeEngine === 'youtube' && playerRef) playerRef.playVideo();
@@ -1007,6 +1249,35 @@ const usePlayerStore = create((set, get) => ({
         else if (html5PlayerRef) html5PlayerRef.play();
       }
       return; 
+    }
+    
+    if (isShuffle) {
+      let nextCursor = shuffleCursor + 1;
+      if (nextCursor >= shuffleOrder.length) {
+        if (isRepeat) {
+          get().generateShuffleOrder(currentIndex);
+          const freshState = get();
+          nextCursor = 0;
+          const nextIndex = freshState.shuffleOrder[nextCursor];
+          set({ shuffleCursor: nextCursor });
+          playSong(queue[nextIndex], queue, nextIndex, false, true);
+        } else {
+          _seekCurrentEngineToZero();
+          const { activeEngine, playerRef, html5PlayerRef } = get();
+          if (activeEngine === 'youtube' && playerRef) playerRef.pauseVideo();
+          if (activeEngine === 'html5') {
+            if (window.Capacitor && AudioPlayer) AudioPlayer.pause({ audioId: 'novision-track' });
+            else if (html5PlayerRef) html5PlayerRef.pause();
+          }
+          toast("Sıradaki tüm karışık şarkılar çalındı.", { icon: '🔄' });
+        }
+        return;
+      }
+      
+      set({ shuffleCursor: nextCursor });
+      const nextIndex = shuffleOrder[nextCursor];
+      playSong(queue[nextIndex], queue, nextIndex, false, true);
+      return;
     }
     
     if (currentIndex === queue.length - 1 && !isShuffle) {
@@ -1044,7 +1315,7 @@ const usePlayerStore = create((set, get) => ({
       return;
     }
     
-    let nextIndex = isShuffle ? Math.floor(Math.random() * queue.length) : currentIndex + 1;
+    let nextIndex = currentIndex + 1;
     if (nextIndex >= queue.length) nextIndex = 0; 
     playSong(queue[nextIndex], queue, nextIndex);
   },
@@ -1057,12 +1328,15 @@ const usePlayerStore = create((set, get) => ({
 
     if (_getCurrentEngineTime() > 3) { _seekCurrentEngineToZero(); return; }
     
+    // 2. GEÇMİŞ (HISTORY) GERİ AKIŞI
     if (historyCursor > 0) {
       const prevCursor = historyCursor - 1; const prevSong = history[prevCursor];
       if(!prevSong) return;
       let idxInQueue = queue.findIndex(s => s.id === prevSong.id);
       if (idxInQueue === -1) { queue.unshift(prevSong); idxInQueue = 0; }
-      playSong(prevSong, queue, idxInQueue, true); 
+      
+      // ÇÖZÜM: Geri gidildiğinde playSong'un 5. parametresini true göndererek shuffle listesinin baştan karıştırılmasını önlüyoruz.
+      playSong(prevSong, queue, idxInQueue, true, true); 
       set({ historyCursor: prevCursor });
     } else { _seekCurrentEngineToZero(); }
   }

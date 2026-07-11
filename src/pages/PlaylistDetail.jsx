@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   MdPlayArrow, MdShuffle, MdEdit, MdCheck, MdArrowBack, 
-  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload, MdFavorite, MdLibraryAdd, MdCheckCircle 
+  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload, MdFavorite, MdLibraryAdd, MdCheckCircle, MdClose
 } from 'react-icons/md';
 import { db } from '../firebase';
 import { ref, get, set, push } from 'firebase/database';
@@ -30,12 +30,11 @@ const getLevenshteinDistance = (s1, s2) => {
     for (let j = 1; j <= s2.length; j++) {
       const cost = s1.charAt(i - 1) === s2.charAt(j - 1) ? 0 : 1;
       currRow[j] = Math.min(
-        currRow[j - 1] + 1, // harf ekleme
-        prevRow[j] + 1,     // harf silme
-        prevRow[j - 1] + cost // harf değiştirme
+        currRow[j - 1] + 1, 
+        prevRow[j] + 1,     
+        prevRow[j - 1] + cost 
       );
     }
-    // Satırları takas et
     const temp = prevRow;
     prevRow = currRow;
     currRow = temp;
@@ -63,7 +62,7 @@ const normalizeTurkish = (str) => {
     .replace(/Ç/g, 'c')
     .replace(/ç/g, 'c')
     .toLowerCase()
-    .replace(/[^a-z0-9]/gi, ' ') // Alfanümerik dışındaki tüm karakterleri boşluğa çevirir
+    .replace(/[^a-z0-9]/gi, ' ') 
     .trim();
 };
 
@@ -84,26 +83,20 @@ const calculateSearchScore = (title, channel, query) => {
 
   if (qTokens.length === 0) return 1;
 
-  // 1. TAM SÖZCÜK GRUBU EŞLEŞMESİ (En yüksek öncelik)
   const exactTitleIndex = normTitle.indexOf(normQuery);
   if (exactTitleIndex === 0) {
-    // Tam şarkı adı sorguyla başlıyor (Örn: "Baneva" yazınca "Baneva" en üstte çıkmalı)
     return 5000 - title.length / 10;
   } else if (exactTitleIndex > 0) {
-    // Şarkı adı sorguyu tam içeriyor
     return 4000 - exactTitleIndex - title.length / 10;
   }
 
   const exactChannelIndex = normChannel.indexOf(normQuery);
   if (exactChannelIndex === 0) {
-    // Sanatçı/Kanal adı sorguyla başlıyor
     return 3000 - channel.length / 10;
   } else if (exactChannelIndex > 0) {
-    // Sanatçı/Kanal adı sorguyu içeriyor
     return 2000 - exactChannelIndex - channel.length / 10;
   }
 
-  // 2. KELİME DÜZEYİNDE DETAYLI YAZIM HATASI VE BENZERLİK ANALİZİ
   let matchedTokensCount = 0;
   let totalTokenScore = 0;
 
@@ -118,12 +111,10 @@ const calculateSearchScore = (title, channel, query) => {
       } else if (tToken.includes(qToken)) {
         bestTokenScore = Math.max(bestTokenScore, 500);
       } else {
-        // PERFORMANS OPTİMİZASYONU: Yazım hatası toleransı yalnızca 2 harften uzun kelimelerde tetiklenir
         if (qToken.length > 2) {
           const lenDiff = Math.abs(tToken.length - qToken.length);
           if (lenDiff <= 3) {
             const dist = getLevenshteinDistance(qToken, tToken);
-            // 5 harften kısaysa max 1, uzunsa max 2 harf hatasını kabul et (Örn: gubes -> gunes uyuşur)
             const maxAllowed = qToken.length <= 5 ? 1 : 2;
             if (dist <= maxAllowed) {
               const sim = 1 - (dist / Math.max(qToken.length, tToken.length));
@@ -140,24 +131,21 @@ const calculateSearchScore = (title, channel, query) => {
     }
   }
 
-  // Sorgudaki tüm kelimelerin şarkıda bir karşılığı/benzeri olmalıdır
   if (matchedTokensCount === qTokens.length) {
     return totalTokenScore;
   }
 
-  return 0; // Alakasız şarkılar elenir
+  return 0; 
 };
 
 // --- İZOLE VE PERFORMANS CANAVARI ARAMA KUTUSU (0% RE-RENDER COST) ---
 const SearchBox = React.memo(({ onSearchChange, defaultValue }) => {
   const [localVal, setLocalVal] = useState(defaultValue || "");
 
-  // Dışarıdan gelen sıfırlama işlemlerini dinler
   useEffect(() => {
     setLocalVal(defaultValue || "");
   }, [defaultValue]);
 
-  // Yazmayı bıraktıktan 300ms sonra ana sayfaya sinyal gönderir
   useEffect(() => {
     const timer = setTimeout(() => {
       onSearchChange(localVal);
@@ -255,7 +243,15 @@ const PlaylistDetail = () => {
   const currentSong = usePlayerStore(s => s.currentSong); 
   const isShuffle = usePlayerStore(s => s.isShuffle);
   const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
+  
+  // Önbellek ve Depolama Store bağlantıları
   const downloadedSongs = usePlayerStore(s => s.downloadedSongs);
+  const deleteDownloadedSong = usePlayerStore(s => s.deleteDownloadedSong);
+  const totalStorageSize = usePlayerStore(s => s.totalStorageSize);
+  const downloadedFileSizes = usePlayerStore(s => s.downloadedFileSizes);
+  const calculateStorageSize = usePlayerStore(s => s.calculateStorageSize);
+  const clearAllDownloads = usePlayerStore(s => s.clearAllDownloads);
+
   const downloadQueue = usePlayerStore(s => s.downloadQueue);
   const addToDownloadQueueList = usePlayerStore(s => s.addToDownloadQueueList);
   const downloadQueueList = usePlayerStore(s => s.downloadQueueList);
@@ -264,7 +260,6 @@ const PlaylistDetail = () => {
   const updateLocalPlaylistName = usePlayerStore(s => s.updateLocalPlaylistName);
   const likedSongs = usePlayerStore(s => s.likedSongs);
   const isOfflineMode = usePlayerStore(s => s.isOfflineMode);
-  
   const updatePlaylistLastPlayed = usePlayerStore(s => s.updatePlaylistLastPlayed);
   
   const [playlist, setPlaylist] = useState(null);
@@ -272,17 +267,15 @@ const PlaylistDetail = () => {
   const [isEditMode, setIsEditMode] = useState(location.state?.autoEdit || false);
   const [isNameEditing, setIsNameEditing] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
-  
   const [sortOrder, setSortOrder] = useState(localStorage.getItem('novision_playlist_sort') || 'oldest');
-  
   const [isSortOpen, setIsSortOpen] = useState(false);
-  
-  // ARAMA SORGUSU (Sadece yazma bittiğinde güncellenir ve re-render tetikler)
   const [searchQuery, setSearchQuery] = useState(""); 
-  
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
   const [isAddedToLibrary, setIsAddedToLibrary] = useState(false);
+  
+  // Depolama Arayüz Modalı
+  const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
 
   const ownerId = searchParams.get('owner') || (user ? user.uid : null);
   
@@ -303,6 +296,7 @@ const PlaylistDetail = () => {
       setPlaylist({ name: 'İndirilen Şarkılar', songs: dSongs });
       setSongs(dSongs);
       setEditNameValue('İndirilen Şarkılar');
+      calculateStorageSize(); // Depolama alanını tetikle
     } else if (isLiked) {
       setPlaylist({ name: 'Beğenilen Şarkılar', songs: likedSongs });
       setSongs(likedSongs);
@@ -399,7 +393,6 @@ const PlaylistDetail = () => {
     updatePlaylistLastPlayed(id, isLocal, user);
     
     if (user && navigator.onLine) {
-      // DÜZELTME: 'firebaseSet' hatası giderilip import edilmiş 'set' metoduna dönüştürüldü.
       await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/lastPlayed`), Date.now());
     }
   };
@@ -409,9 +402,7 @@ const PlaylistDetail = () => {
     updatePlaylistLastPlayed(id, isLocal, user);
   };
 
-  // --- TOPLU İNDİRME FONKSİYONLARI (Eklendi) ---
   const handleSelectAll = () => {
-    // Sadece cihazda henüz indirilmemiş şarkıları seçebilmeliyiz
     const unDownloadedIds = songs
       .filter(song => !downloadedSongs[song.id])
       .map(song => song.id);
@@ -442,7 +433,6 @@ const PlaylistDetail = () => {
 
   const safeSongs = Array.isArray(songs) ? songs : [];
   
-  // --- AKILLI VE SIRALANMIŞ GECİKMELİ (DEBOUNCED) ARAMA ENTEGRASYONU ---
   let displaySongs = [];
   if (searchQuery.trim() !== "") {
     const scoredSongs = safeSongs
@@ -471,6 +461,12 @@ const PlaylistDetail = () => {
             <MdFavorite size={64} color="white" />
           </div>
         )}
+
+        {isDownloadedFolder && (
+          <div style={{ width: '120px', height: '120px', borderRadius: '12px', background: '#282828', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)' }}>
+            <MdFileDownload size={64} color="white" />
+          </div>
+        )}
         
         <div style={{ flex: 1 }}>
           {isNameEditing && canEdit ? (
@@ -487,7 +483,7 @@ const PlaylistDetail = () => {
           <p className="playlist-info-text">
             {safeSongs.length} Şarkı 
             {playlist.readonly && " • (Salt Okunur)"}
-            {isDownloadedFolder && " • (İndirilenler)"}
+            {isDownloadedFolder && ` • Cihazda kaplanan alan: ${totalStorageSize}`}
             {isLocal && " • (Yerel)"}
           </p>
         </div>
@@ -513,6 +509,17 @@ const PlaylistDetail = () => {
             {!isDownloadedFolder && safeSongs.length > 0 && navigator.onLine && (
               <button className="icon-btn" title="Toplu İndir" onClick={() => setIsDownloadMode(true)} style={{ marginLeft: '15px' }}>
                 <MdFileDownload size={32} color="white" />
+              </button>
+            )}
+
+            {/* İNDİRİLENLER İÇİN YEREL DEPOLAMA YÖNETİM PANEL BUTONU */}
+            {isDownloadedFolder && safeSongs.length > 0 && (
+              <button 
+                className="secondary-btn" 
+                onClick={() => setIsStorageModalOpen(true)}
+                style={{ marginLeft: '15px', background: '#242424', color: 'white', border: '1px solid var(--border)' }}
+              >
+                Depolama Yönetimi
               </button>
             )}
 
@@ -565,7 +572,7 @@ const PlaylistDetail = () => {
 
       <div className="playlist-songs">
         {displaySongs.length === 0 ? (
-          <p style={{ color: 'gray', margin: '30px 0', textAlign: 'center' }}>Aranan kritere uygun şarkı bulunamadı.</p>
+          <p style={{ color: 'gray', margin: '30px 0', textAlign: 'center' }}>Aranan kriterlere uygun şarkı bulunamadı.</p>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
             <Droppable droppableId="songs" isDropDisabled={!isEditMode || isDownloadMode || searchQuery !== ""}>
@@ -626,6 +633,96 @@ const PlaylistDetail = () => {
           </DragDropContext>
         )}
       </div>
+
+      {/* --- DEPOLAMA VE ÖNBELLEK KONTROL PANELİ MODALI --- */}
+      {isStorageModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 10000 }}>
+          <div className="modal-content" style={{ width: '90%', maxWidth: '420px', padding: '25px', textAlign: 'left' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h3 style={{ color: 'white', margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Depolama Yönetimi</h3>
+              <button className="icon-btn" onClick={() => setIsStorageModalOpen(false)}>
+                <MdClose size={24} />
+              </button>
+            </div>
+
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '20px', lineHeight: '1.4' }}>
+              Cihazınızda çevrimdışı dinleme için ayrılan toplam alan: <strong style={{ color: 'white' }}>{totalStorageSize}</strong>
+            </p>
+
+            <button 
+              className="primary-btn" 
+              onClick={() => {
+                toast((t) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '220px', padding: '10px 5px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: '500', textAlign: 'center', color: 'white' }}>
+                      TÜM çevrimdışı şarkıları silmek istediğinize emin misiniz?
+                    </span>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '5px' }}>
+                      <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#444', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => toast.dismiss(t.id)}>İptal</button>
+                      <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#ff4d4d', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={async () => {
+                         toast.dismiss(t.id);
+                         await clearAllDownloads();
+                         setIsStorageModalOpen(false);
+                      }}>Hepsini Sil</button>
+                    </div>
+                  </div>
+                ), { duration: Infinity, position: 'top-center' });
+              }}
+              style={{ background: '#ff4d4d', color: 'white', marginBottom: '20px', fontSize: '14px', padding: '12px', borderRadius: '50px', border: 'none', cursor: 'pointer', width: '100%', fontWeight: 'bold' }}
+            >
+              Tüm İndirmeleri Temizle
+            </button>
+
+            <h4 style={{ color: 'white', fontSize: '14px', marginBottom: '12px', fontWeight: 'bold' }}>Kayıtlı Çevrimdışı Şarkılar:</h4>
+
+            <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '5px' }}>
+              {Object.values(downloadedSongs).map(song => (
+                <div 
+                  key={song.metadata.id} 
+                  style={{
+                    display: 'flex', alignItems: 'center', justify: 'space-between', 
+                    padding: '10px', background: 'var(--bg-hover)', borderRadius: '8px', border: '1px solid var(--border)'
+                  }}
+                >
+                  <div style={{ flex: 1, overflow: 'hidden', marginRight: '10px' }}>
+                    <div style={{ color: 'white', fontSize: '13px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {song.metadata.title}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>
+                      {downloadedFileSizes[song.metadata.id] || "Hesaplanıyor..."}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      toast((t) => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '220px', padding: '10px 5px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '500', textAlign: 'center', color: 'white' }}>
+                            "{song.metadata.title}" çevrimdışı indirilenlerden silinsin mi?
+                          </span>
+                          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '5px' }}>
+                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#444', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => toast.dismiss(t.id)}>İptal</button>
+                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#ff4d4d', color: 'white', cursor: 'pointer', fontWeight: 'bold' }} onClick={async () => {
+                               toast.dismiss(t.id);
+                               await deleteDownloadedSong(song.metadata.id);
+                            }}>Sil</button>
+                          </div>
+                        </div>
+                      ), { duration: Infinity, position: 'top-center' });
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: '#ff4d4d', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  >
+                    Sil
+                  </button>
+                </div>
+              ))}
+              {Object.keys(downloadedSongs).length === 0 && (
+                <p style={{ color: 'gray', fontSize: '12px', textAlign: 'center', marginTop: '10px' }}>İndirilmiş şarkı bulunmuyor.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
