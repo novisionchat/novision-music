@@ -315,9 +315,6 @@ const usePlayerStore = create((set, get) => ({
   targetLanguage: localStorage.getItem('lyrics_target_language') || 'tr',
   detectedLanguage: 'AUTO',
 
-  // YENİLİK: Bekleyen şarkı sözü isteklerini yöneten zamanlayıcı referansı
-  lyricsTimeoutId: null,
-
   setVideoMode: (val) => {
     if (val && !navigator.onLine) {
       toast.error("İnternet bağlantınız yok. Video oynatılamaz.");
@@ -602,68 +599,47 @@ const usePlayerStore = create((set, get) => ({
 
   fetchLyrics: async (song) => {
     const state = get();
-
-    // 1. Önceki şarkıdan kalan ve henüz başlamamış bir arama işlemi varsa iptal et
-    if (state.lyricsTimeoutId) {
-      clearTimeout(state.lyricsTimeoutId);
-    }
-
-    // 2. Arayüzde eski şarkının sözlerinin kalmasını önlemek için anında sıfırla
-    set({ lyrics: [], isLyricsLoading: true, lyricsTimeoutId: null });
-
     const localData = state.downloadedSongs[song.id];
 
-    // 3. Şarkı yerel hafızada indirilmiş durumdaysa, gecikme uygulamadan doğrudan yükle
     if (localData && localData.metadata?.lyrics?.length > 0) {
       set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
       return;
     }
     
-    if (!navigator.onLine) { 
-      set({ lyrics: [], isLyricsLoading: false }); 
-      return; 
-    }
+    if (!navigator.onLine) { set({ lyrics: [], isLyricsLoading: false }); return; }
     
-    // 4. Çevrimiçi şarkılar için 1.5 saniye (1500 ms) geciktirme başlatıyoruz
-    const timeoutId = setTimeout(async () => {
-      // API isteği başlamadan hemen önce kullanıcının hala aynı şarkıda olup olmadığını doğrula
-      if (get().currentSong?.id !== song.id) return;
-
-      try {
-        const songDuration = song.duration || get().duration || 0;
-        const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, songDuration);
-        
-        // Ağ isteği tamamlandığında kullanıcının hala aynı şarkıda olup olmadığını tekrar kontrol et
-        if (get().currentSong?.id !== song.id) {
-          return;
-        }
-
-        if (lyricsData) {
-          let parsed = [];
-          if (lyricsData.instrumental) {
-            parsed = [{ time: 0, text: "✦ Enstrümantal ✦" }];
-          } else if (lyricsData.syncedLyrics) {
-            parsed = parseSyncedLyrics(lyricsData.syncedLyrics);
-          } else if (lyricsData.plainLyrics) {
-            lyricsData.plainLyrics.split('\n').forEach((line, idx) => {
-              if (line.trim()) {
-                parsed.push({ time: idx * 999999, text: line.trim() });
-              }
-            });
-          }
-          set({ lyrics: parsed, isLyricsLoading: false });
-        } else {
-          set({ lyrics: [], isLyricsLoading: false });
-        }
-      } catch(e) {
-        if (get().currentSong?.id === song.id) {
-          set({ lyrics: [], isLyricsLoading: false });
-        }
+    set({ lyrics: [], isLyricsLoading: true });
+    
+    try {
+      const songDuration = song.duration || state.duration || 0;
+      const lyricsData = await fetchLyricsFromLrcLib(song.channel, song.title, songDuration);
+      
+      if (get().currentSong?.id !== song.id) {
+        return;
       }
-    }, 1500); // Hızlı şarkı atlamalarında API spam'ini önleyen 1.5 saniyelik güvenli süre
 
-    // Oluşturulan zamanlayıcı ID'sini store'a kaydet (böylece sonraki geçişte temizlenebilecek)
-    set({ lyricsTimeoutId: timeoutId });
+      if (lyricsData) {
+        let parsed = [];
+        if (lyricsData.instrumental) {
+          parsed = [{ time: 0, text: "✦ Enstrümantal ✦" }];
+        } else if (lyricsData.syncedLyrics) {
+          parsed = parseSyncedLyrics(lyricsData.syncedLyrics);
+        } else if (lyricsData.plainLyrics) {
+          lyricsData.plainLyrics.split('\n').forEach((line, idx) => {
+            if (line.trim()) {
+              parsed.push({ time: idx * 999999, text: line.trim() });
+            }
+          });
+        }
+        set({ lyrics: parsed, isLyricsLoading: false });
+      } else {
+        set({ lyrics: [], isLyricsLoading: false });
+      }
+    } catch(e) {
+      if (get().currentSong?.id === song.id) {
+        set({ lyrics: [], isLyricsLoading: false });
+      }
+    }
   },
 
   // --- AKILLI GOOGLE TRANSLATE ALTYAPISI ---
@@ -838,6 +814,7 @@ const usePlayerStore = create((set, get) => ({
       currentStreamUrl: streamUrlToAssign,
       nativeProgressInterval: null,
       
+      // YENİLİK: Her yeni şarkıya geçildiğinde çeviri durumlarını sıfırla
       translatedLyrics: [],
       showTranslation: false,
       detectedLanguage: 'AUTO'
