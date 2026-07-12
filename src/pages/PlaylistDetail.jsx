@@ -391,10 +391,6 @@ const PlaylistDetail = () => {
     playSong(songs[startIndex], songs, startIndex);
     
     updatePlaylistLastPlayed(id, isLocal, user);
-    
-    if (user && navigator.onLine) {
-      await set(ref(db, `users/${user.uid}/playlists/${playlist.id}/lastPlayed`), Date.now());
-    }
   };
 
   const handlePlaySong = (song, index) => {

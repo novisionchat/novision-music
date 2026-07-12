@@ -96,20 +96,32 @@ const PanelProgress = () => {
   );
 };
 
-// SÖZLER ALANI ALT BİLEŞENİ (Genişletilmiş modda Spotify tarzı player kontrolleri barındırır)
-const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
+// SÖZLER VE SIRA ALANI ALT BİLEŞENİ
+const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscapeWide }) => {
+  const [activeTab, setActiveTab] = useState('lyrics'); // 'lyrics' | 'queue'
+  
   const lyrics = usePlayerStore(s => s.lyrics);
   const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
   const currentTime = usePlayerStore(s => s.currentTime);
   const seekTo = usePlayerStore(s => s.seekTo);
+  const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen); // Tam ekran takibi eklendi
 
-  // Spotify-Style Kontrolcü Store Bağlantıları
+  // Sıra yönetimi store bağlantıları
+  const queue = usePlayerStore(s => s.queue);
+  const currentIndex = usePlayerStore(s => s.currentIndex);
+  const isShuffle = usePlayerStore(s => s.isShuffle);
+  const shuffleOrder = usePlayerStore(s => s.shuffleOrder);
+  const shuffleCursor = usePlayerStore(s => s.shuffleCursor);
+  
+  const playSong = usePlayerStore(s => s.playSong);
+  const removeFromQueue = usePlayerStore(s => s.removeFromQueue);
+  const moveQueueItem = usePlayerStore(s => s.moveQueueItem);
+
   const playNext = usePlayerStore(s => s.playNext);
   const playPrev = usePlayerStore(s => s.playPrev);
   const togglePlay = usePlayerStore(s => s.togglePlay);
   const isPlaying = usePlayerStore(s => s.isPlaying);
 
-  // --- ÇEVİRİ SİSTEMİ VERİ BAĞLANTILARI ---
   const translatedLyrics = usePlayerStore(s => s.translatedLyrics);
   const isTranslationLoading = usePlayerStore(s => s.isTranslationLoading);
   const showTranslation = usePlayerStore(s => s.showTranslation);
@@ -128,18 +140,47 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
     return currentTime >= l.time && currentTime < nextTime; 
   });
 
+  // Karışık ya da düz listeyi çalma durumuna göre sırayla üreten akıllı eşleyici
+  const displayList = React.useMemo(() => {
+    if (isShuffle && shuffleOrder.length === queue.length) {
+      return shuffleOrder.map((originalIndex, displayIdx) => ({
+        song: queue[originalIndex],
+        originalIndex: originalIndex,
+        displayIndex: displayIdx,
+        isPlayingNow: displayIdx === shuffleCursor
+      }));
+    }
+    return queue.map((song, idx) => ({
+      song,
+      originalIndex: idx,
+      displayIndex: idx,
+      isPlayingNow: idx === currentIndex
+    }));
+  }, [queue, isShuffle, shuffleOrder, shuffleCursor, currentIndex]);
+
+  // SEKTÖR STANDARDI VERTİKAL HİZALAMA MOTORU (Tam Ekrana Özel Ekran Sınır Merkezlemesi Eklendi)
   useEffect(() => {
-    if (activeLyricIndex !== -1 && lyricsContainerRef.current) {
+    if (activeLyricIndex !== -1 && lyricsContainerRef.current && activeTab === 'lyrics') {
       const container = lyricsContainerRef.current;
-      const activeEl = container.children[activeLyricIndex];
+      
+      const activeEl = container.querySelector('.lyric-line.active');
       if (activeEl) {
-        const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+        let scrollPos = 0;
+        
+        // DÜZELTME: Tam ekranda, butonlar ve çeviri barı fark etmeksizin sözü ekranın üst ve altına (Viewport Center) göre tam ortalar!
+        if (isPanelFullscreen) {
+          const containerRect = container.getBoundingClientRect();
+          scrollPos = activeEl.offsetTop + containerRect.top - (window.innerHeight / 2) + (activeEl.clientHeight / 2);
+        } else {
+          // Normal/Sidebar pencere modlarında kendi penceresine göre ortalar
+          scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+        }
+        
         container.scrollTo({ top: scrollPos, behavior: 'smooth' });
       }
     }
-  }, [activeLyricIndex, isLyricsExpanded]);
+  }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide, isPanelFullscreen]);
 
-  // Dil menüsü dışına tıklanıldığında menüyü kapatan kanca
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (langMenuRef.current && !langMenuRef.current.contains(e.target)) {
@@ -165,15 +206,53 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
     translateCurrentLyrics(langCode);
   };
 
+  const showExpandedControls = isLyricsExpanded && !isLandscapeWide;
+
   return (
     <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
-      <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
-          <span>Sözler</span>
-          
-          {/* ÇEVİRİ BUTON VE MENÜ YAPILANDIRMASI */}
+      <div className="lyrics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', marginBottom: '15px' }}>
+        
+        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+          <span 
+            onClick={() => setActiveTab('lyrics')}
+            style={{ 
+              fontSize: '18px', 
+              fontWeight: '700', 
+              cursor: 'pointer', 
+              color: activeTab === 'lyrics' ? 'white' : 'var(--text-muted)',
+              borderBottom: activeTab === 'lyrics' ? '3px solid var(--accent)' : '3px solid transparent',
+              paddingBottom: '4px',
+              transition: 'all 0.2s'
+            }}
+          >
+            Sözler
+          </span>
+          <span 
+            onClick={() => setActiveTab('queue')}
+            style={{ 
+              fontSize: '18px', 
+              fontWeight: '700', 
+              cursor: 'pointer', 
+              color: activeTab === 'queue' ? 'white' : 'var(--text-muted)',
+              borderBottom: activeTab === 'queue' ? '3px solid var(--accent)' : '3px solid transparent',
+              paddingBottom: '4px',
+              transition: 'all 0.2s'
+            }}
+          >
+            Sıra
+          </span>
+        </div>
+
+        <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>
+          {isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}
+        </button>
+      </div>
+
+      {/* SÖZLER SEKME İÇERİĞİ */}
+      {activeTab === 'lyrics' && (
+        <>
           {safeLyrics.length > 0 && !isLyricsLoading && lyrics[0]?.text !== "✦ Enstrümantal ✦" && (
-            <div ref={langMenuRef} className="translate-control-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+            <div ref={langMenuRef} className="translate-control-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '15px', flexShrink: 0 }}>
               <button 
                 className={`icon-btn translate-btn ${showTranslation ? 'active' : ''}`} 
                 onClick={handleTranslateToggle}
@@ -256,59 +335,122 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
               )}
             </div>
           )}
-        </div>
 
-        <button className="icon-btn" onClick={() => setIsLyricsExpanded(!isLyricsExpanded)}>
-          {isLyricsExpanded ? <MdCloseFullscreen size={20} color="white" /> : <MdOpenInFull size={20} color="white" />}
-        </button>
-      </div>
+          <div className="lyrics-content" ref={lyricsContainerRef} style={{ display: 'flex', flexDirection: 'column', paddingBottom: '60vh' }}>
+            {isLyricsLoading ? (
+              <div className="lyrics-placeholder">Sözler aranıyor...</div>
+            ) : isTranslationLoading ? (
+              <div className="lyrics-placeholder">Sözler çevriliyor...</div>
+            ) : safeLyrics.length > 0 ? (
+              safeLyrics.map((line, idx) => {
+                const isLineActive = idx === activeLyricIndex;
+                const translatedLine = translatedLyrics[idx]?.text;
 
-      <div className="lyrics-content" ref={lyricsContainerRef}>
-        {isLyricsLoading ? (
-          <div className="lyrics-placeholder">Sözler aranıyor...</div>
-        ) : isTranslationLoading ? (
-          <div className="lyrics-placeholder">Sözler çevriliyor...</div>
-        ) : safeLyrics.length > 0 ? (
-          safeLyrics.map((line, idx) => {
-            const isLineActive = idx === activeLyricIndex;
-            const translatedLine = translatedLyrics[idx]?.text;
+                return (
+                  <div 
+                    key={idx} 
+                    className={`lyric-line ${isLineActive ? 'active' : ''}`} 
+                    onClick={() => seekTo(line.time)}
+                  >
+                    <div>{line.text}</div>
+                    
+                    {showTranslation && translatedLine && translatedLine !== line.text && (
+                      <div 
+                        className="lyric-translation"
+                        style={{
+                          fontSize: '0.7em', 
+                          fontWeight: '500', 
+                          opacity: isLineActive ? 0.85 : 0.6,
+                          marginTop: '4px',
+                          lineHeight: '1.25',
+                          display: 'block',
+                          color: isLineActive ? 'white' : 'rgba(255,255,255,0.4)',
+                          transform: 'none'
+                        }}
+                      >
+                        {translatedLine}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>
+            )}
+          </div>
+        </>
+      )}
 
+      {/* SIRADAKİ ŞARKILAR (QUEUE) SEKME İÇERİĞİ */}
+      {activeTab === 'queue' && (
+        <div 
+          className="lyrics-content" 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px', 
+            overflowY: 'auto',
+            // DÜZELTME: Sidebar ve Tam Ekran modlarında, Sıra genişletilince dikey alanın tamamını kaplayacak şekilde dinamik esnetildi!
+            flex: isLyricsExpanded ? 1 : 'unset',
+            maxHeight: isLyricsExpanded ? '100%' : '40vh'
+          }}
+        >
+          {displayList.map((item) => {
+            const displayThumb = (item.song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
             return (
               <div 
-                key={idx} 
-                className={`lyric-line ${isLineActive ? 'active' : ''}`} 
-                onClick={() => seekTo(line.time)}
+                key={`${item.song.id}-${item.displayIndex}`} 
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px',
+                  background: item.isPlayingNow ? 'rgba(255, 42, 84, 0.08)' : 'rgba(255,255,255,0.03)',
+                  borderRadius: '10px', border: item.isPlayingNow ? '1px solid rgba(255, 42, 84, 0.25)' : '1px solid var(--border)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onClick={() => playSong(item.song, queue, item.originalIndex, false, true)}
               >
-                <div>{line.text}</div>
-                
-                {/* SPOTIFY STİLİ ÇİFT SATIR ÇEVİRİ KATMANI */}
-                {showTranslation && translatedLine && translatedLine !== line.text && (
-                  <div 
-                    className="lyric-translation"
-                    style={{
-                      fontSize: '0.7em', 
-                      fontWeight: '500', 
-                      opacity: isLineActive ? 0.85 : 0.6,
-                      marginTop: '4px',
-                      lineHeight: '1.25',
-                      display: 'block',
-                      color: isLineActive ? 'white' : 'rgba(255,255,255,0.4)',
-                      transform: 'none'
-                    }}
+                <img 
+                  src={displayThumb || '/icon.png'} 
+                  alt={item.song.title} 
+                  style={{ width: '44px', height: '44px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} 
+                />
+                <div style={{ flex: 1, overflow: 'hidden', textAlign: 'left' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: item.isPlayingNow ? 'var(--accent)' : 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.song.title}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>{item.song.channel}</div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    disabled={item.displayIndex === 0} 
+                    onClick={() => moveQueueItem(item.displayIndex, 'up')}
+                    style={{ background: 'transparent', border: 'none', color: item.displayIndex === 0 ? '#444' : 'var(--text-muted)', cursor: item.displayIndex === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px' }}
                   >
-                    {translatedLine}
-                  </div>
-                )}
+                    ▲
+                  </button>
+                  <button 
+                    disabled={item.displayIndex === queue.length - 1} 
+                    onClick={() => moveQueueItem(item.displayIndex, 'down')}
+                    style={{ background: 'transparent', border: 'none', color: item.displayIndex === queue.length - 1 ? '#444' : 'var(--text-muted)', cursor: item.displayIndex === queue.length - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px' }}
+                  >
+                    ▼
+                  </button>
+                  <button 
+                    onClick={() => removeFromQueue(item.originalIndex)}
+                    style={{ background: 'transparent', border: 'none', color: '#ff4d4d', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', marginLeft: '4px' }}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             );
-          })
-        ) : (
-          <div className="lyrics-placeholder">Bu şarkı için söz bulunamadı.</div>
-        )}
-      </div>
+          })}
+          {displayList.length === 0 && (
+            <div className="lyrics-placeholder">Sırada şarkı bulunmuyor.</div>
+          )}
+        </div>
+      )}
 
-      {/* SPOTIFY STİLİ GENİŞLETİLMİŞ SÖZLER ALTI PLAYER KONTROLLERİ */}
-      {isLyricsExpanded && (
+      {showExpandedControls && (
         <div className="lyrics-expanded-controls">
           <PanelProgress />
           <div className="lyrics-expanded-buttons">
@@ -327,7 +469,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded }) => {
 const NowPlayingPanel = () => {
   const navigate = useNavigate();
   
-  // Seçicileri ayrıştırarak ana panel render yükünü tamamen kaldırıyoruz
   const currentSong = usePlayerStore(s => s.currentSong);
   const isPanelOpen = usePlayerStore(s => s.isPanelOpen);
   const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen);
@@ -358,6 +499,21 @@ const NowPlayingPanel = () => {
   const [imgSrc, setImgSrc] = useState('');
   const [ambientColors, setAmbientColors] = useState(['#FF2A54', '#ff8038', '#00C6FF', '#121212']);
   const [touchStart, setTouchStart] = useState(null);
+
+  // REAKTİF YÖN / EKRAN BOYUTU TAKİPÇİSİ
+  const [isLandscapeWide, setIsLandscapeWide] = useState(
+    window.innerWidth >= 800 && (window.innerWidth / window.innerHeight >= 1.2)
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsLandscapeWide(
+        window.innerWidth >= 800 && (window.innerWidth / window.innerHeight >= 1.2)
+      );
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!currentSong) return;
@@ -461,9 +617,11 @@ const NowPlayingPanel = () => {
     setTouchStart(null);
   };
 
+  // Sadece dikey modda tam ekran sözler açılmışsa yerleşim değişmesini tetikleyen reaktif koşul
+  const shouldExpandLyricsLayout = isLyricsExpanded && !isLandscapeWide;
+
   return (
     <aside className={`now-playing-panel ${isPanelOpen ? 'open' : ''} ${isPanelFullscreen ? 'fullscreen' : ''}`}>
-      {/* SIFIR YENİDEN BOYAMA (ZERO REPAINT) GPU DOSTU ARKA PLAN */}
       <div className="ambient-bg">
         <div className="ambient-blob color-1" style={{ backgroundColor: ambientColors[0] }}></div>
         <div className="ambient-blob color-2" style={{ backgroundColor: ambientColors[1] }}></div>
@@ -484,10 +642,9 @@ const NowPlayingPanel = () => {
         </button>
       </div>
 
-      <div className={`panel-scroll-area ${isLyricsExpanded ? 'lyrics-expanded-active' : ''}`}>
+      <div className={`panel-scroll-area ${shouldExpandLyricsLayout ? 'lyrics-expanded-active' : ''}`}>
         
-        {/* SOL SÜTUN SARMALAYICISI */}
-        <div className={`panel-left-column ${isLyricsExpanded ? 'hidden-for-lyrics' : ''}`}>
+        <div className={`panel-left-column ${shouldExpandLyricsLayout ? 'hidden-for-lyrics' : ''}`}>
           
           <div className="panel-artwork-container">
             <YouTubeEngine />
@@ -516,7 +673,6 @@ const NowPlayingPanel = () => {
           </div>
 
           <div className="panel-controls">
-            {/* Progress Bar Alt Bileşene İndirgenmiştir */}
             <PanelProgress />
             
             <div className="main-buttons panel-main-buttons">
@@ -564,8 +720,11 @@ const NowPlayingPanel = () => {
 
         </div>
 
-        {/* SAĞ SÜTUN: Şarkı sözleri alanı Alt Bileşene İndirgenmiştir */}
-        <LyricsPanelSection isLyricsExpanded={isLyricsExpanded} setIsLyricsExpanded={setIsLyricsExpanded} />
+        <LyricsPanelSection 
+          isLyricsExpanded={isLyricsExpanded} 
+          setIsLyricsExpanded={setIsLyricsExpanded} 
+          isLandscapeWide={isLandscapeWide}
+        />
 
       </div>
     </aside>

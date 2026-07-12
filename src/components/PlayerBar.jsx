@@ -187,7 +187,7 @@ const PlayerBar = () => {
           cursor: 'pointer',
           boxShadow: '0 -4px 15px rgba(0,0,0,0.6)',
           position: 'fixed', 
-          bottom: '58px', 
+          bottom: '65px', // Fixed from 58px to prevent overlap with bottom-nav (height 65px)
           left: 0, 
           width: '100%',
           background: '#121212', 
@@ -198,7 +198,7 @@ const PlayerBar = () => {
         onTouchEnd={handleTouchEnd}
         onClick={togglePanel}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px', height: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px' }}>
           <div className="track-thumb-wrapper" style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
              <img src={displayThumb} alt="cover" className="track-thumb" />
           </div>
@@ -208,8 +208,7 @@ const PlayerBar = () => {
           </div>
         </div>
 
-        {/* DÜZELTME: Butonların yer aldığı flex alanı ve butonların kendi iç payları dikey hizalamanın tam ortasında olacak şekilde sıfırlandı */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '0 0 auto', justifyContent: 'flex-end', marginLeft: '10px', height: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '0 0 auto', justifyContent: 'flex-end', marginLeft: '10px' }}>
           <button 
             className="icon-btn" 
             onClick={(e) => { e.stopPropagation(); playPrev(); }} 
@@ -270,7 +269,7 @@ const PlayerBar = () => {
         </button>
       </div>
 
-      <div className="player-controls" style={{ flex: 1, display: 'flex', flexDirection: 'column', align_items: 'center', maxWidth: '40%' }}>
+      <div className="player-controls" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '40%' }}>
         <div className="main-buttons" style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '5px' }}>
           <button 
             className="icon-btn" 

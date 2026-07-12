@@ -97,14 +97,14 @@ const PanelProgress = () => {
 };
 
 // SÖZLER VE SIRA ALANI ALT BİLEŞENİ
-const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscapeWide }) => {
+const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscapeWide, shouldExpandLyricsLayout }) => {
   const [activeTab, setActiveTab] = useState('lyrics'); // 'lyrics' | 'queue'
   
   const lyrics = usePlayerStore(s => s.lyrics);
   const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
   const currentTime = usePlayerStore(s => s.currentTime);
   const seekTo = usePlayerStore(s => s.seekTo);
-  const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen); // Tam ekran takibi eklendi
+  const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen);
 
   // Sıra yönetimi store bağlantıları
   const queue = usePlayerStore(s => s.queue);
@@ -116,11 +116,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
   const playSong = usePlayerStore(s => s.playSong);
   const removeFromQueue = usePlayerStore(s => s.removeFromQueue);
   const moveQueueItem = usePlayerStore(s => s.moveQueueItem);
-
-  const playNext = usePlayerStore(s => s.playNext);
-  const playPrev = usePlayerStore(s => s.playPrev);
-  const togglePlay = usePlayerStore(s => s.togglePlay);
-  const isPlaying = usePlayerStore(s => s.isPlaying);
 
   const translatedLyrics = usePlayerStore(s => s.translatedLyrics);
   const isTranslationLoading = usePlayerStore(s => s.isTranslationLoading);
@@ -140,7 +135,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     return currentTime >= l.time && currentTime < nextTime; 
   });
 
-  // Karışık ya da düz listeyi çalma durumuna göre sırayla üreten akıllı eşleyici
   const displayList = React.useMemo(() => {
     if (isShuffle && shuffleOrder.length === queue.length) {
       return shuffleOrder.map((originalIndex, displayIdx) => ({
@@ -158,28 +152,35 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     }));
   }, [queue, isShuffle, shuffleOrder, shuffleCursor, currentIndex]);
 
-  // SEKTÖR STANDARDI VERTİKAL HİZALAMA MOTORU (Tam Ekrana Özel Ekran Sınır Merkezlemesi Eklendi)
+  // GELİŞTİRİLMİŞ GERÇEK VE MUTLAK DİKEY HİZALAMA MOTORU (Panel Üstü ile Player Bar Hizalaması)
   useEffect(() => {
     if (activeLyricIndex !== -1 && lyricsContainerRef.current && activeTab === 'lyrics') {
       const container = lyricsContainerRef.current;
-      
       const activeEl = container.querySelector('.lyric-line.active');
+      
       if (activeEl) {
         let scrollPos = 0;
+        let targetCenterY = 0;
         
-        // DÜZELTME: Tam ekranda, butonlar ve çeviri barı fark etmeksizin sözü ekranın üst ve altına (Viewport Center) göre tam ortalar!
         if (isPanelFullscreen) {
-          const containerRect = container.getBoundingClientRect();
-          scrollPos = activeEl.offsetTop + containerRect.top - (window.innerHeight / 2) + (activeEl.clientHeight / 2);
+          // Tam ekran modunda dikey ortalama
+          targetCenterY = window.innerHeight / 2;
         } else {
-          // Normal/Sidebar pencere modlarında kendi penceresine göre ortalar
-          scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+          // Dikey panel modu: panel üstü ile player barın başladığı yer arası dikey merkez bulunur.
+          const playerBarHeight = window.innerWidth < 768 ? 0 : 90;
+          targetCenterY = (window.innerHeight - playerBarHeight) / 2;
         }
+
+        // Aktif olan satırın ekran üzerindeki dikey merkezi hesaplanır
+        const currentElementCenterY = activeEl.getBoundingClientRect().top + (activeEl.clientHeight / 2);
+        
+        // Mevcut kaydırma konumuna dikey hizalama elde edilir
+        scrollPos = container.scrollTop + (currentElementCenterY - targetCenterY);
         
         container.scrollTo({ top: scrollPos, behavior: 'smooth' });
       }
     }
-  }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide, isPanelFullscreen]);
+  }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide, isPanelFullscreen, shouldExpandLyricsLayout]);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -205,8 +206,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     setIsLangMenuOpen(false);
     translateCurrentLyrics(langCode);
   };
-
-  const showExpandedControls = isLyricsExpanded && !isLandscapeWide;
 
   return (
     <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
@@ -336,7 +335,18 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
             </div>
           )}
 
-          <div className="lyrics-content" ref={lyricsContainerRef} style={{ display: 'flex', flexDirection: 'column', paddingBottom: '60vh' }}>
+          <div 
+            className="lyrics-content" 
+            ref={lyricsContainerRef} 
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              paddingBottom: '60vh',
+              flex: isLyricsExpanded ? '1 1 0%' : 'unset',
+              maxHeight: isLyricsExpanded ? '100%' : '40vh',
+              overflowY: 'auto'
+            }}
+          >
             {isLyricsLoading ? (
               <div className="lyrics-placeholder">Sözler aranıyor...</div>
             ) : isTranslationLoading ? (
@@ -390,8 +400,7 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
             flexDirection: 'column', 
             gap: '8px', 
             overflowY: 'auto',
-            // DÜZELTME: Sidebar ve Tam Ekran modlarında, Sıra genişletilince dikey alanın tamamını kaplayacak şekilde dinamik esnetildi!
-            flex: isLyricsExpanded ? 1 : 'unset',
+            flex: isLyricsExpanded ? '1 1 0%' : 'unset',
             maxHeight: isLyricsExpanded ? '100%' : '40vh'
           }}
         >
@@ -447,19 +456,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
           {displayList.length === 0 && (
             <div className="lyrics-placeholder">Sırada şarkı bulunmuyor.</div>
           )}
-        </div>
-      )}
-
-      {showExpandedControls && (
-        <div className="lyrics-expanded-controls">
-          <PanelProgress />
-          <div className="lyrics-expanded-buttons">
-            <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={32} color="white" /></button>
-            <button className="play-pause-btn" onClick={togglePlay} style={{ width: '48px', height: '48px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer' }}>
-              {isPlaying ? <MdPause size={30} color="black" /> : <MdPlayArrow size={30} color="black" />}
-            </button>
-            <button className="icon-btn" onClick={playNext}><MdSkipNext size={32} color="white" /></button>
-          </div>
         </div>
       )}
     </div>
@@ -581,15 +577,6 @@ const NowPlayingPanel = () => {
   const isDownloading = downloadQueue.includes(currentSong.id);
   const progress = downloadProgress[currentSong.id] || 0;
 
-  const handleImageError = () => {
-    const fallbackUrl = currentSong?.thumbnail || '/icon.png';
-    if (imgSrc !== fallbackUrl) setImgSrc(fallbackUrl.replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg'));
-  };
-
-  const handleImageLoad = (e) => {
-    if (e.target.naturalWidth === 120 && e.target.naturalHeight === 90) handleImageError();
-  };
-
   const handleShare = () => {
     navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${currentSong.id}`);
     toast.success("Şarkı bağlantısı kopyalandı!");
@@ -617,8 +604,8 @@ const NowPlayingPanel = () => {
     setTouchStart(null);
   };
 
-  // Sadece dikey modda tam ekran sözler açılmışsa yerleşim değişmesini tetikleyen reaktif koşul
-  const shouldExpandLyricsLayout = isLyricsExpanded && !isLandscapeWide;
+  // Dikey modda veya sidebar modundayken sol sütunun gizlenerek sözlerin genişlemesini sağlayan akıllı reaktif koşul
+  const shouldExpandLyricsLayout = isLyricsExpanded && !(isPanelFullscreen && isLandscapeWide);
 
   return (
     <aside className={`now-playing-panel ${isPanelOpen ? 'open' : ''} ${isPanelFullscreen ? 'fullscreen' : ''}`}>
@@ -652,8 +639,6 @@ const NowPlayingPanel = () => {
               src={imgSrc || '/icon.png'} 
               alt="cover" 
               className="panel-artwork" 
-              onLoad={handleImageLoad} 
-              onError={handleImageError} 
               style={{ opacity: (isVideoMode && activeEngine === 'youtube') ? 0 : 1, transition: 'opacity 0.3s' }} 
             />
           </div>
@@ -724,9 +709,25 @@ const NowPlayingPanel = () => {
           isLyricsExpanded={isLyricsExpanded} 
           setIsLyricsExpanded={setIsLyricsExpanded} 
           isLandscapeWide={isLandscapeWide}
+          shouldExpandLyricsLayout={shouldExpandLyricsLayout}
         />
 
       </div>
+
+      {/* SÖZLER GENİŞLETİLDİĞİNDE EN ALTTA SABİT KALAN BULLETPROOF REAKTİF KONTROLLER */}
+      {shouldExpandLyricsLayout && (
+        <div className="lyrics-expanded-controls">
+          <PanelProgress />
+          <div className="lyrics-expanded-buttons">
+            <button className="icon-btn" onClick={playPrev}><MdSkipPrevious size={32} color="white" /></button>
+            <button className="play-pause-btn" onClick={togglePlay} style={{ width: '48px', height: '48px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer' }}>
+              {isPlaying ? <MdPause size={30} color="black" /> : <MdPlayArrow size={30} color="black" />}
+            </button>
+            <button className="icon-btn" onClick={playNext}><MdSkipNext size={32} color="white" /></button>
+          </div>
+        </div>
+      )}
+
     </aside>
   );
 };

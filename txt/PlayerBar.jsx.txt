@@ -109,7 +109,6 @@ const TimelineProgress = () => {
 };
 
 const PlayerBar = () => {
-  // Seçicileri ayrıştırarak ana PlayerBar'ın saniyede bir render olmasını engelliyoruz
   const currentSong = usePlayerStore(s => s.currentSong);
   const isPlaying = usePlayerStore(s => s.isPlaying);
   const togglePlay = usePlayerStore(s => s.togglePlay);
@@ -199,21 +198,22 @@ const PlayerBar = () => {
         onTouchEnd={handleTouchEnd}
         onClick={togglePanel}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', overflow: 'hidden', minWidth: '100px', height: '100%' }}>
           <div className="track-thumb-wrapper" style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--bg-hover)' }}>
              <img src={displayThumb} alt="cover" className="track-thumb" />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%', justifyContent: 'center' }}>
             <MarqueeText text={currentSong.title} style={{ fontSize: '14px', fontWeight: 'bold', color: 'white' }} />
             <MarqueeText text={currentSong.channel} style={{ fontSize: '12px', color: 'var(--text-muted)' }} />
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '0 0 auto', justifyContent: 'flex-end', marginLeft: '10px' }}>
+        {/* DÜZELTME: Butonların yer aldığı flex alanı ve butonların kendi iç payları dikey hizalamanın tam ortasında olacak şekilde sıfırlandı */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '0 0 auto', justifyContent: 'flex-end', marginLeft: '10px', height: '100%' }}>
           <button 
             className="icon-btn" 
             onClick={(e) => { e.stopPropagation(); playPrev(); }} 
-            style={{ padding: 0 }}
+            style={{ padding: 0, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <MdSkipPrevious size={32} color="white" />
           </button>
@@ -221,7 +221,7 @@ const PlayerBar = () => {
           <button 
             className="play-pause-btn" 
             onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-            style={{ width: '45px', height: '45px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer' }}
+            style={{ width: '42px', height: '42px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', border: 'none', cursor: 'pointer', padding: 0, margin: 0 }}
           >
             {isPlaying ? <MdPause size={26} color="black" /> : <MdPlayArrow size={26} color="black" />}
           </button>
@@ -229,7 +229,7 @@ const PlayerBar = () => {
           <button 
             className="icon-btn" 
             onClick={(e) => { e.stopPropagation(); playNext(); }} 
-            style={{ padding: 0 }}
+            style={{ padding: 0, margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <MdSkipNext size={32} color="white" />
           </button>
@@ -299,7 +299,6 @@ const PlayerBar = () => {
           </button>
         </div>
         
-        {/* Progress Bar Alt Bileşene İndirgenmiştir */}
         <TimelineProgress />
       </div>
 
