@@ -35,7 +35,7 @@ img {
   background-color: var(--bg-panel); 
   display: flex; 
   flex-direction: column; 
-  padding: 24px 16px; /* Sabit dolgu ile geçiş sıçramaları önlendi */
+  padding: 24px 16px; 
   gap: 30px; 
   border-right: 1px solid var(--border); 
   z-index: 10; 
@@ -49,7 +49,7 @@ img {
 .sidebar-desktop.collapsed .nav-item {
   justify-content: center;
   padding: 12px 0;
-  gap: 0 !important; /* Gizlenen metinlerden kalan boşluğu sıfırlayarak ikonları kusursuzca ortalar */
+  gap: 0 !important; 
 }
 /* Logo Alanı Esnek Kutu Düzeni (Overlapping Engelleyici) */
 .sidebar-desktop .logo-brand {
@@ -106,14 +106,14 @@ img {
   align-items: center; 
   justify-content: space-between; 
   color: white; 
-  padding: 0 4px; /* Navigasyon kutularının ikonlarıyla milimetrik hizalandı */
+  padding: 0 4px; 
   width: 100%;
   transition: padding 0.3s, gap 0.3s;
 }
 .sidebar-desktop.collapsed .logo-area {
   justify-content: center !important;
   padding: 0;
-  gap: 0 !important; /* Aradaki boşluk sıfırlanarak hamburger menünün tam ortalanması sağlandı */
+  gap: 0 !important; 
 }
 
 .nav-item { 
@@ -209,7 +209,6 @@ img {
   max-width: 700px;
   max-height: 700px;
   transform: translate3d(0, 0, 0);
-  /* Şarkı değiştiğinde renklerin yumuşak geçişi için akıcı transition. Çalma esnasında render sıfırdır. */
   transition: background-color 1.5s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: background-color;
 }
@@ -267,7 +266,16 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .panel-actions { flex-direction: row; justify-content: center; gap: 30px; margin-top: 25px; margin-bottom: 10px; opacity: 1; }
 
 .lyrics-card { margin-top: 15px; background-color: rgba(0, 0, 0, 0.4); border-radius: 12px; padding: 20px; width: 100%; display: flex; flex-direction: column; transition: all 0.3s ease; overflow: hidden; flex-shrink: 0; }
-.lyrics-card.expanded { flex: 1; margin-top: 0; background-color: transparent; padding: 0; height: 100%; }
+
+/* DOĞRU KATMAN HİZALAMASI: flex-basis sıfırlanıp height limitsiz bırakıldı, Flexbox dikeyde kendisi sıkıştıracaktır */
+.lyrics-card.expanded { 
+  flex: 1 1 0% !important; 
+  margin-top: 0; 
+  background-color: transparent; 
+  padding: 0; 
+  max-height: 100% !important; 
+  min-height: 0 !important; 
+}
 .lyrics-header { font-size: 18px; font-weight: 700; color: white; margin-bottom: 20px; flex-shrink: 0; }
 
 .lyrics-content { 
@@ -282,7 +290,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   padding-right: 30px;
   padding-left: 5px;
 }
-.lyrics-card.expanded .lyrics-content { max-height: 100%; flex: 1; }
+.lyrics-card.expanded .lyrics-content { max-height: none !important; flex: 1 1 0% !important; min-height: 0 !important; overflow-y: auto !important; }
 .lyrics-content::-webkit-scrollbar { display: none; }
 .lyrics-content { scrollbar-width: none; }
 
@@ -422,7 +430,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 .lyrics-expanded-controls {
   margin-top: auto;
   padding-top: 15px;
-  padding-bottom: 5px;
+  padding-bottom: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
@@ -431,6 +439,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   width: 100%;
   background: linear-gradient(180deg, transparent 0%, rgba(18,18,18,0.95) 100%);
   z-index: 10;
+  flex-shrink: 0; /* Küçülmeyi önler */
 }
 .lyrics-expanded-buttons {
   display: flex;
@@ -586,23 +595,24 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   .now-playing-panel.fullscreen .panel-actions { margin: 0 auto !important; margin-bottom: auto !important; justify-content: center; gap: 40px; width: 100%; }
   .now-playing-panel.fullscreen .lyrics-card { margin-top: 0; margin-bottom: auto !important; width: 100%; max-width: 600px; }
 
-  /* Dikey Modda Sözler Genişletildiğinde WebKit'te Boşluğu Kapatan Dikey Blok Yapısı */
+  /* Dikey Modda Sözler Genişletildiğinde WebKit'te Boşluğu Kapatan Dikey Blok Yapısı (height: auto'lar temizlendi) */
   .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active {
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    height: calc(100vh - 80px) !important; 
-    height: calc(100dvh - 80px) !important;
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
     padding-top: 0 !important;
     gap: 0 !important; 
+    overflow: hidden !important; /* Dış taşıyıcının kaymasını tamamen engelleyerek kontrolleri görünür tabana sabitler */
   }
   .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active .lyrics-card {
     order: 1 !important; 
-    flex: 1 !important;
-    height: 100% !important; 
-    max-height: none !important;
+    flex: 1 1 0% !important;
+    max-height: 100% !important;
     margin-top: 0 !important;
-    margin-bottom: 20px !important;
+    margin-bottom: 0 !important;
+    min-height: 0 !important;
   }
   .now-playing-panel.fullscreen .panel-scroll-area.lyrics-expanded-active .panel-controls {
     order: 2 !important; 
@@ -612,21 +622,24 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
   }
 }
 
+/* YAN PANEL SÖZLER GENİŞLEDİĞİNDE DİKEY DARALMA KONTROLÜ (height: auto kaldırıldı, tamamen flex tabanlı) */
 .now-playing-panel .panel-scroll-area.lyrics-expanded-active {
   display: flex !important;
   flex-direction: column !important;
   justify-content: space-between !important;
-  height: 100% !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
   padding-top: 0 !important;
   gap: 0 !important;
+  overflow: hidden !important; /* Dış taşıyıcının kaymasını tamamen engelleyerek kontrolleri görünür tabana sabitler */
 }
 .now-playing-panel .panel-scroll-area.lyrics-expanded-active .lyrics-card {
   order: 1 !important;
-  flex: 1 !important;
-  height: 100% !important;
-  max-height: none !important;
+  flex: 1 1 0% !important;
+  max-height: 100% !important;
   margin-top: 0 !important;
-  margin-bottom: 20px !important;
+  margin-bottom: 0 !important;
+  min-height: 0 !important;
 }
 .now-playing-panel .panel-scroll-area.lyrics-expanded-active .panel-controls {
   order: 2 !important;
@@ -667,10 +680,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     overflow: hidden !important;
   }
 
-  /* 
-     YATAY MODTA GÖSTERİM OVERRIDES:
-     Sol sütunun dikey flex düzenini kararlı, milimetrik ve simetrik hale getirir. 
-  */
+  /* Sol sütunun dikey flex düzenini kararlı ve simetrik hale getirir */
   .now-playing-panel.fullscreen .panel-left-column {
     display: flex !important;
     flex-direction: column !important;
@@ -707,10 +717,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     background-color: black !important;
   }
 
-  /* 
-     ŞARKI BİLGİSİ VE KELİMELERİNİN ORTALANMASI:
-     Beğeni butonu absolute yapılarak şarkı isminin sol yarının tam merkezinde kalması sağlanır.
-  */
+  /* Beğeni butonu absolute yapılarak şarkı isminin sol yarının tam merkezinde kalması sağlanır */
   .now-playing-panel.fullscreen .panel-info { 
     width: 100% !important; 
     margin: 0 !important;
@@ -773,7 +780,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     margin: 0 !important;
   }
   
-  /* Kontrollerin hizalanması ve kararlı dikey düzeni */
+  /* Kontrollerin hizalanması ve dikey düzeni */
   .now-playing-panel.fullscreen .panel-controls { 
     width: 100% !important; 
     max-width: 420px !important; 
@@ -827,10 +834,10 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     display: none !important; 
   } 
 
-  /* FLEX YAPISI DÜZELTİLDİ: SÖZLERİN YARIM KALMASINI VE KAYMAMASINI ÖNLER (STANDART BLOK AKIŞI) */
+  /* Sözlerin yarım kalmasını önleyen akış */
   .now-playing-panel.fullscreen .lyrics-content { 
     max-height: 100% !important; 
-    flex: 1 !important; 
+    flex: 1 1 0% !important; 
     padding-right: 40px !important; 
     display: block !important; 
     overflow-y: auto !important;
@@ -852,11 +859,7 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
     padding: 10px 0 !important; 
   }
   
-  /* 
-     YATAY MODTA GÖSTERİM OVERRIDES:
-     Öncelikli gizleme kuralları YALNIZCA TAM EKRAN (.fullscreen) durumlarında devre dışı bırakılır.
-     Böylece, normal dar yan panel açıkken (.fullscreen sınıfı yokken) gizleme sınıfı dar panelde başarıyla çalışır.
-  */
+  /* Öncelikli gizleme kuralları tam ekran dışındaki yan panel durumlarında başarıyla çalışır */
   .now-playing-panel.fullscreen .hidden-for-lyrics { 
     position: relative !important; 
     width: auto !important; 
@@ -917,4 +920,23 @@ iframe.youtube-video-fill { position: absolute !important; top: 0 !important; le
 /* PC ve Yatay Tablet Görünümünde Çeviri İkonunun Gizlenmesini Önler */
 .now-playing-panel.fullscreen .lyrics-header .translate-btn {
   display: flex !important;
+}
+
+/* ========================================================
+   KÖK SEVİYEDE KONTROLLERİN SABİTLENMESİ
+   (Kaydırmadan, sözlerden veya yüklenmeden asla etkilenmez)
+   ======================================================== */
+.now-playing-panel .lyrics-expanded-controls {
+  margin-top: auto !important;
+  padding-top: 15px !important;
+  padding-bottom: 5px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  background: linear-gradient(180deg, transparent 0%, rgba(18,18,18,0.95) 100%) !important;
+  z-index: 100 !important;
+  flex-shrink: 0 !important;
 }

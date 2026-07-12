@@ -159,24 +159,30 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
       const activeEl = container.querySelector('.lyric-line.active');
       
       if (activeEl) {
-        let scrollPos = 0;
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = activeEl.getBoundingClientRect();
+        const activeCenterY = activeRect.top + (activeRect.height / 2);
+        
         let targetCenterY = 0;
         
-        if (isPanelFullscreen) {
-          // Tam ekran modunda dikey ortalama
+        // 1. Yatay tam ekran (Landscape ve Fullscreen) modunda ekran dikey ortalanır
+        if (isPanelFullscreen && isLandscapeWide) {
           targetCenterY = window.innerHeight / 2;
         } else {
-          // Dikey panel modu: panel üstü ile player barın başladığı yer arası dikey merkez bulunur.
-          const playerBarHeight = window.innerWidth < 768 ? 0 : 90;
-          targetCenterY = (window.innerHeight - playerBarHeight) / 2;
+          // 2. Tam ekran olmayan durumlarda veya dikey modda:
+          // Sözler tuşunun (kartın) en üstü ile en altı hesaplanıp tam ortasına dikey hizalama yapılır.
+          const card = container.closest('.lyrics-card');
+          if (card) {
+            const cardRect = card.getBoundingClientRect();
+            targetCenterY = cardRect.top + (cardRect.height / 2);
+          } else {
+            // Yedek plan: Kart bulunamazsa container alanının ortası alınır
+            targetCenterY = containerRect.top + (containerRect.height / 2);
+          }
         }
 
-        // Aktif olan satırın ekran üzerindeki dikey merkezi hesaplanır
-        const currentElementCenterY = activeEl.getBoundingClientRect().top + (activeEl.clientHeight / 2);
-        
-        // Mevcut kaydırma konumuna dikey hizalama elde edilir
-        scrollPos = container.scrollTop + (currentElementCenterY - targetCenterY);
-        
+        // Mevcut kaydırma konumuna göre dikey hizalama elde edilir
+        const scrollPos = container.scrollTop + (activeCenterY - targetCenterY);
         container.scrollTo({ top: scrollPos, behavior: 'smooth' });
       }
     }
