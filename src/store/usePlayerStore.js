@@ -72,7 +72,7 @@ const parseSyncedLyrics = (syncedLyricsText) => {
   return parsed;
 };
 
-// --- KELİME BENZERLİK SKORU ALGORİTMASI ---
+// --- KELİME BENZERLİK SKORU ALGORİTMASI (Overlap Coefficient) ---
 const getSimilarityScore = (str1, str2) => {
   if (!str1 || !str2) return 0;
   
@@ -100,7 +100,7 @@ const getSimilarityScore = (str1, str2) => {
   return intersection / Math.min(w1.size, w2.size);
 };
 
-// --- SIKI DOĞRULAMA FİLTRESİ ---
+// --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
 const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, result) => {
   if (!result) return false;
   
@@ -674,7 +674,12 @@ const usePlayerStore = create((set, get) => ({
   updateLocalPlaylistName: (id, name) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, name } : pl)); },
   deleteLocalPlaylist: (id) => { get().saveLocalPlaylists(get().localPlaylists.filter(pl => pl.id !== id)); },
 
+  // --- ÇALMA LİSTESİ SON OYNATMA ZAMANINI GÜNCELLEME SİSTEMİ ---
   updatePlaylistLastPlayed: async (playlistId, isLocal, user) => {
+    // DÜZELTME: Sistem listelerinin (indirilenler, beğenilenler, trendler) veritabanında hayalet liste oluşturması engellendi.
+    if (playlistId === 'downloaded' || playlistId === 'liked' || playlistId === 'trend_tr' || playlistId === 'trend_global') {
+      return; 
+    }
     const now = Date.now();
     if (isLocal) {
       const updated = get().localPlaylists.map(p => p.id === playlistId ? { ...p, lastPlayed: now } : p);
@@ -1234,7 +1239,6 @@ const usePlayerStore = create((set, get) => ({
       let idxInQueue = queue.findIndex(s => s.id === nextSong.id);
       if (idxInQueue === -1) { queue.push(nextSong); idxInQueue = queue.length - 1; }
       
-      // ÇÖZÜM: playSong'un 5. parametresini true göndererek çalma listesini karıştırmadan mevcut yapıyı koruyoruz.
       playSong(nextSong, queue, idxInQueue, true, true); 
       set({ historyCursor: nextCursor }); 
       return;
@@ -1335,7 +1339,6 @@ const usePlayerStore = create((set, get) => ({
       let idxInQueue = queue.findIndex(s => s.id === prevSong.id);
       if (idxInQueue === -1) { queue.unshift(prevSong); idxInQueue = 0; }
       
-      // ÇÖZÜM: Geri gidildiğinde playSong'un 5. parametresini true göndererek shuffle listesinin baştan karıştırılmasını önlüyoruz.
       playSong(prevSong, queue, idxInQueue, true, true); 
       set({ historyCursor: prevCursor });
     } else { _seekCurrentEngineToZero(); }

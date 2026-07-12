@@ -104,6 +104,7 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
   const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
   const currentTime = usePlayerStore(s => s.currentTime);
   const seekTo = usePlayerStore(s => s.seekTo);
+  const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen); // Tam ekran takibi eklendi
 
   // Sıra yönetimi store bağlantıları
   const queue = usePlayerStore(s => s.queue);
@@ -157,18 +158,28 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     }));
   }, [queue, isShuffle, shuffleOrder, shuffleCursor, currentIndex]);
 
-  // AKILLI VE KUSURSUZ MERKEZLEME TETİKLEYİCİSİ (Yön değişimlerine duyarlı kılınmıştır)
+  // SEKTÖR STANDARDI VERTİKAL HİZALAMA MOTORU (Tam Ekrana Özel Ekran Sınır Merkezlemesi Eklendi)
   useEffect(() => {
     if (activeLyricIndex !== -1 && lyricsContainerRef.current && activeTab === 'lyrics') {
       const container = lyricsContainerRef.current;
       
       const activeEl = container.querySelector('.lyric-line.active');
       if (activeEl) {
-        const scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+        let scrollPos = 0;
+        
+        // DÜZELTME: Tam ekranda, butonlar ve çeviri barı fark etmeksizin sözü ekranın üst ve altına (Viewport Center) göre tam ortalar!
+        if (isPanelFullscreen) {
+          const containerRect = container.getBoundingClientRect();
+          scrollPos = activeEl.offsetTop + containerRect.top - (window.innerHeight / 2) + (activeEl.clientHeight / 2);
+        } else {
+          // Normal/Sidebar pencere modlarında kendi penceresine göre ortalar
+          scrollPos = activeEl.offsetTop - (container.clientHeight / 2) + (activeEl.clientHeight / 2);
+        }
+        
         container.scrollTo({ top: scrollPos, behavior: 'smooth' });
       }
     }
-  }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide]);
+  }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide, isPanelFullscreen]);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -195,7 +206,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     translateCurrentLyrics(langCode);
   };
 
-  // Çift kontrol mekanizmalarının dikey-yatay çakışmalarını engelleyen UX filtresi
   const showExpandedControls = isLyricsExpanded && !isLandscapeWide;
 
   return (
@@ -373,7 +383,18 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
 
       {/* SIRADAKİ ŞARKILAR (QUEUE) SEKME İÇERİĞİ */}
       {activeTab === 'queue' && (
-        <div className="lyrics-content" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
+        <div 
+          className="lyrics-content" 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px', 
+            overflowY: 'auto',
+            // DÜZELTME: Sidebar ve Tam Ekran modlarında, Sıra genişletilince dikey alanın tamamını kaplayacak şekilde dinamik esnetildi!
+            flex: isLyricsExpanded ? 1 : 'unset',
+            maxHeight: isLyricsExpanded ? '100%' : '40vh'
+          }}
+        >
           {displayList.map((item) => {
             const displayThumb = (item.song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
             return (
