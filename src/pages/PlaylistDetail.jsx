@@ -3,7 +3,8 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   MdPlayArrow, MdShuffle, MdEdit, MdCheck, MdArrowBack, 
-  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload, MdFavorite, MdLibraryAdd, MdCheckCircle, MdClose
+  MdDragIndicator, MdDelete, MdExpandMore, MdSearch, MdFileDownload, MdFavorite, MdLibraryAdd, MdCheckCircle, MdClose,
+  MdSync
 } from 'react-icons/md';
 import { db } from '../firebase';
 import { ref, get, set, push } from 'firebase/database';
@@ -273,6 +274,7 @@ const PlaylistDetail = () => {
   const [isDownloadMode, setIsDownloadMode] = useState(false);
   const [selectedSongs, setSelectedSongs] = useState([]);
   const [isAddedToLibrary, setIsAddedToLibrary] = useState(false);
+  const [isDailyMixRefreshing, setIsDailyMixRefreshing] = useState(false);
   
   // Depolama Arayüz Modalı
   const [isStorageModalOpen, setIsStorageModalOpen] = useState(false);
@@ -282,13 +284,14 @@ const PlaylistDetail = () => {
   const isLocal = id.startsWith('local_');
   const isDownloadedFolder = id === 'downloaded';
   const isLiked = id === 'liked';
+  const isDailyMix = id === 'daily_mix';
   const iTrendTR = id === 'trend_tr';
   const isTrendGlobal = id === 'trend_global';
   const isTrend = iTrendTR || isTrendGlobal;
   
   const isMyPlaylist = isLocal || (user && ownerId === user.uid);
-  const canEdit = !isDownloadedFolder && !isLiked && !isTrend && isMyPlaylist && !playlist?.readonly;
-  const isExternal = !isMyPlaylist && !isTrend && !isLiked && !isDownloadedFolder;
+  const canEdit = !isDownloadedFolder && !isLiked && !isTrend && !isDailyMix && isMyPlaylist && !playlist?.readonly;
+  const isExternal = !isMyPlaylist && !isTrend && !isLiked && !isDownloadedFolder && !isDailyMix;
 
   useEffect(() => {
     if (isDownloadedFolder) {
@@ -301,6 +304,12 @@ const PlaylistDetail = () => {
       setPlaylist({ name: 'Beğenilen Şarkılar', songs: likedSongs });
       setSongs(likedSongs);
       setEditNameValue('Beğenilen Şarkılar');
+    } else if (isDailyMix) {
+      const mix = usePlayerStore.getState().dailyMix;
+      const mixSongs = mix?.songs || [];
+      setPlaylist({ name: 'Sizin İçin Karışım', songs: mixSongs });
+      setSongs(mixSongs);
+      setEditNameValue('Sizin İçin Karışım');
     } else if (iTrendTR) {
       getTrendings('TR').then(data => { setPlaylist({ name: 'Türkiye Trendleri', songs: data }); setSongs(data); setEditNameValue('Türkiye Trendleri'); });
     } else if (isTrendGlobal) {
@@ -352,6 +361,22 @@ const PlaylistDetail = () => {
     });
     setIsAddedToLibrary(true);
     toast.success("Kitaplığa eklendi!");
+  };
+
+  const handleRefreshDailyMix = async () => {
+    if (isDailyMixRefreshing) return;
+    setIsDailyMixRefreshing(true);
+    
+    const generateDailyMix = usePlayerStore.getState().generateDailyMix;
+    await generateDailyMix(true); // Önbelleği atlayarak baştan hesaplamaya zorla
+    
+    const freshMix = usePlayerStore.getState().dailyMix;
+    const freshSongs = freshMix?.songs || [];
+    
+    setPlaylist({ name: 'Sizin İçin Karışım', songs: freshSongs });
+    setSongs(freshSongs);
+    setIsDailyMixRefreshing(false);
+    toast.success("Karışım listeniz yeniden analiz edilerek güncellendi!");
   };
 
   const onDragEnd = (result) => {
@@ -463,6 +488,12 @@ const PlaylistDetail = () => {
             <MdFileDownload size={64} color="white" />
           </div>
         )}
+
+        {isDailyMix && (
+          <div style={{ width: '120px', height: '120px', borderRadius: '12px', background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, boxShadow: '0 10px 30px rgba(139, 92, 246, 0.4)' }}>
+            <span style={{ fontSize: '32px', color: 'white', fontWeight: 'bold' }}>Mix</span>
+          </div>
+        )}
         
         <div style={{ flex: 1 }}>
           {isNameEditing && canEdit ? (
@@ -478,7 +509,7 @@ const PlaylistDetail = () => {
           )}
           <p className="playlist-info-text">
             {safeSongs.length} Şarkı 
-            {playlist.readonly && " • (Salt Okunur)"}
+            {(playlist.readonly || isDailyMix) && " • (Salt Okunur)"}
             {isDownloadedFolder && ` • Cihazda kaplanan alan: ${totalStorageSize}`}
             {isLocal && " • (Yerel)"}
           </p>
@@ -508,7 +539,7 @@ const PlaylistDetail = () => {
               </button>
             )}
 
-            {/* İNDİRİLENLER İÇİN YEREL DEPOLAMA YÖNETİM PANEL BUTONU */}
+            {/* İNDİRİLENLER İÇİN YEREL DEPOLAMA YÖNETİ̇M PANEL BUTONU */}
             {isDownloadedFolder && safeSongs.length > 0 && (
               <button 
                 className="secondary-btn" 
@@ -516,6 +547,28 @@ const PlaylistDetail = () => {
                 style={{ marginLeft: '15px', background: '#242424', color: 'white', border: '1px solid var(--border)' }}
               >
                 Depolama Yönetimi
+              </button>
+            )}
+
+            {/* GÜNLÜK KARIŞIMI YENİDEN HESAPLAMA BUTONU */}
+            {isDailyMix && navigator.onLine && (
+              <button 
+                className="secondary-btn" 
+                onClick={handleRefreshDailyMix}
+                disabled={isDailyMixRefreshing}
+                style={{ 
+                  marginLeft: '15px', display: 'flex', alignItems: 'center', gap: '6px', 
+                  background: 'rgba(139, 92, 246, 0.2)', 
+                  border: '1px solid rgba(139, 92, 246, 0.4)', 
+                  color: 'white',
+                  cursor: isDailyMixRefreshing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <MdSync 
+                  size={18} 
+                  style={{ animation: isDailyMixRefreshing ? 'spin 1s linear infinite' : 'none' }} 
+                /> 
+                {isDailyMixRefreshing ? "Yenileniyor..." : "Yeniden Hesapla"}
               </button>
             )}
 
