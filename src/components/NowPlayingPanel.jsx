@@ -517,10 +517,59 @@ const NowPlayingPanel = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // AKILLI SIRA DÜZENİ VE ÇÖZÜNÜRLÜK DENETÇİSİ
   useEffect(() => {
     if (!currentSong) return;
+
     const localData = downloadedSongs[currentSong.id];
-    setImgSrc(localData?.localThumbUrl ? localData.localThumbUrl : `https://i.ytimg.com/vi/${currentSong.id}/maxresdefault.jpg`);
+    if (localData?.localThumbUrl) {
+      setImgSrc(localData.localThumbUrl);
+      return;
+    }
+
+    // Arama sonuçlarından veya store üzerinden gelen mevcut görseli anında yerleştiriyoruz
+    setImgSrc(currentSong.thumbnail || '/icon.png');
+
+    let isMounted = true;
+    
+    // YouTube'da çözünürlük derecelerine göre taranacak adresler
+    const urlsToTest = [
+      `https://i.ytimg.com/vi/${currentSong.id}/maxresdefault.jpg`, // HD
+      `https://i.ytimg.com/vi/${currentSong.id}/sddefault.jpg`,     // SD
+      `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`      // HQ
+    ];
+
+    let index = 0;
+
+    const testNextThumbnail = () => {
+      if (index >= urlsToTest.length) return;
+
+      const img = new Image();
+      img.src = urlsToTest[index];
+      
+      img.onload = () => {
+        if (!isMounted) return;
+        // YouTube, talep edilen yüksek çözünürlüklü görsel bulunamadığında 120x90 yer tutucu resmi döndürür
+        if (img.naturalWidth === 120 && img.naturalHeight === 90) {
+          index++;
+          testNextThumbnail();
+        } else {
+          setImgSrc(urlsToTest[index]);
+        }
+      };
+      
+      img.onerror = () => {
+        if (!isMounted) return;
+        index++;
+        testNextThumbnail();
+      };
+    };
+
+    testNextThumbnail();
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentSong, downloadedSongs]);
 
   useEffect(() => {

@@ -297,6 +297,10 @@ const usePlayerStore = create((set, get) => ({
   totalStorageSize: "0.0 MB",
   downloadedFileSizes: {},
 
+  // --- GÜNLÜK KİŞİSEL KARIŞIM VE İSTATİSTİK STATE TANIMLARI ---
+  dailyMix: null,
+  isDailyMixLoading: false,
+
   // --- BEĞENİLENLER SİSTEMİ ---
   likedSongs: [],
   setLikedSongs: (songs) => set({ likedSongs: songs || [] }),
@@ -561,6 +565,155 @@ const usePlayerStore = create((set, get) => ({
     get().calculateStorageSize();
   },
 
+  // --- KİŞİSELLEŞTİRİLMİŞ GÜNLÜK KARIŞIM OLUŞTURUCU ---
+  generateDailyMix: async (force = false) => {
+    const state = get();
+    try {
+      const cachedMix = await localforage.getItem('daily_mix_data');
+      const now = Date.now();
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+
+      if (!force && cachedMix && (now - cachedMix.timestamp < twentyFourHours) && cachedMix.songs?.length > 0) {
+        set({ dailyMix: cachedMix });
+        return;
+      }
+
+      set({ isDailyMixLoading: true });
+
+      const playCounts = (await localforage.getItem('song_play_counts')) || {};
+      const playCountArray = Object.values(playCounts);
+
+      // En çok dinlenen şarkılar (dinleme adedine göre azalan)
+      const topPlayedSongs = [...playCountArray]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8)
+        .map(x => x.metadata);
+
+      // En çok dinlenen sanatçılar
+      const artistCounts = {};
+      playCountArray.forEach(x => {
+        const artist = x.metadata.channel;
+        if (artist) {
+          artistCounts[artist] = (artistCounts[artist] || 0) + x.count;
+        }
+      });
+      const topArtists = Object.entries(artistCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(entry => entry[0]);
+
+      // Yetersiz geçmiş durumunda zenginleştirilmiş çoklu sanatçı yedek havuzu (Duman gibi tekli sanatçı kilitlenmelerini önler)
+      if (playCountArray.length < 3 && navigator.onLine) {
+        const defaultKeywords = ["Tarkan", "Sezen Aksu", "Madrigal", "Ezhel", "Duman", "Gripin", "Anıl Piyancı", "Sena Şener"];
+        const shuffledKeywords = [...defaultKeywords].sort(() => Math.random() - 0.5);
+        let fallbackPool = [];
+
+        // 3 farklı sanatçıdan popüler parçaları toplayıp harmanlayarak listeyi dengeliyoruz
+        for (const kw of shuffledKeywords.slice(0, 3)) {
+          try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(kw)}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.length > 0) {
+                fallbackPool.push(...data.slice(0, 12));
+              }
+            }
+          } catch (err) {}
+        }
+
+        fallbackPool = fallbackPool.sort(() => Math.random() - 0.5).slice(0, 40);
+        fallbackPool = fallbackPool.map((s, idx) => ({
+          ...s,
+          uniqueId: `daily-mix-${s.id}-${idx}`
+        }));
+
+        const mixData = { timestamp: now, songs: fallbackPool };
+        await localforage.setItem('daily_mix_data', mixData);
+        set({ dailyMix: mixData, isDailyMixLoading: false });
+        return;
+      }
+
+      if (!navigator.onLine) {
+        if (cachedMix) {
+          set({ dailyMix: cachedMix, isDailyMixLoading: false });
+        } else {
+          set({ dailyMix: { timestamp: now, songs: [] }, isDailyMixLoading: false });
+        }
+        return;
+      }
+
+      let pool = [];
+      const seenIds = new Set();
+
+      // 1. Favori parçaların benzerlerini çek
+      for (const song of topPlayedSongs.slice(0, 4)) {
+        try {
+          let relatedRes = await fetch(`${import.meta.env.VITE_API_URL}/api/related?id=${song.id}`);
+          let data = [];
+          if (relatedRes.ok) {
+            data = await relatedRes.json();
+          } else {
+            const relatedSearchRes = await fetch(`${import.meta.env.VITE_API_URL}/api/search?relatedToVideoId=${song.id}&type=video`);
+            if (relatedSearchRes.ok) data = await relatedSearchRes.json();
+          }
+
+          if (data && data.length > 0) {
+            data.forEach(s => {
+              if (!seenIds.has(s.id)) {
+                seenIds.add(s.id);
+                pool.push(s);
+              }
+            });
+          }
+        } catch (e) {
+          console.warn(`Mix related fetch error for song ${song.id}:`, e);
+        }
+      }
+
+      // 2. Favori sanatçıların parçalarını çek
+      for (const artist of topArtists.slice(0, 3)) {
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(artist)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.length > 0) {
+              data.slice(0, 10).forEach(s => {
+                if (!seenIds.has(s.id)) {
+                  seenIds.add(s.id);
+                  pool.push(s);
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn(`Mix search error for artist ${artist}:`, e);
+        }
+      }
+
+      // 3. Çok dinlenen mevcut şarkıları serpiştir
+      topPlayedSongs.slice(0, 6).forEach(s => {
+        if (!seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          pool.push(s);
+        }
+      });
+
+      let finalSongs = pool.sort(() => Math.random() - 0.5).slice(0, 40);
+      finalSongs = finalSongs.map((s, idx) => ({
+        ...s,
+        uniqueId: `daily-mix-${s.id}-${idx}`
+      }));
+
+      const mixData = { timestamp: now, songs: finalSongs };
+      await localforage.setItem('daily_mix_data', mixData);
+      set({ dailyMix: mixData, isDailyMixLoading: false });
+
+    } catch (error) {
+      console.error("Günlük karışım oluşturulurken hata:", error);
+      set({ isDailyMixLoading: false });
+    }
+  },
+
   initOfflineStorage: async () => {
     try {
       const handleVisibilityChange = () => {
@@ -657,6 +810,9 @@ const usePlayerStore = create((set, get) => ({
           console.error("Tarayıcı önbellek yükleme hatası:", webError);
         }
       }
+
+      get().generateDailyMix();
+
     } catch (e) { console.error("Offline DB yüklenirken genel hata:", e); }
   },
 
@@ -676,8 +832,7 @@ const usePlayerStore = create((set, get) => ({
 
   // --- ÇALMA LİSTESİ SON OYNATMA ZAMANINI GÜNCELLEME SİSTEMİ ---
   updatePlaylistLastPlayed: async (playlistId, isLocal, user) => {
-    // DÜZELTME: Sistem listelerinin (indirilenler, beğenilenler, trendler) veritabanında hayalet liste oluşturması engellendi.
-    if (playlistId === 'downloaded' || playlistId === 'liked' || playlistId === 'trend_tr' || playlistId === 'trend_global') {
+    if (playlistId === 'downloaded' || playlistId === 'liked' || playlistId === 'trend_tr' || playlistId === 'trend_global' || playlistId === 'daily_mix') {
       return; 
     }
     const now = Date.now();
@@ -1077,6 +1232,20 @@ const usePlayerStore = create((set, get) => ({
       }
     }
 
+    const trackPlayCount = async (songToTrack) => {
+      try {
+        let playCounts = (await localforage.getItem('song_play_counts')) || {};
+        if (!playCounts[songToTrack.id]) {
+          playCounts[songToTrack.id] = { count: 0, metadata: songToTrack };
+        }
+        playCounts[songToTrack.id].count += 1;
+        await localforage.setItem('song_play_counts', playCounts);
+      } catch (e) {
+        console.error("Dinleme istatistiği kaydedilemedi:", e);
+      }
+    };
+    trackPlayCount(song);
+
     if (window.Capacitor && AudioPlayer && nextEngine === 'html5') {
         const runNativeAudio = async () => {
           try {
@@ -1300,8 +1469,37 @@ const usePlayerStore = create((set, get) => ({
       try {
         let cleanArtist = currentSong.channel.replace(' - Topic', '').replace(/VEVO/i, '').trim();
         let searchBase = cleanArtist.length > 2 ? cleanArtist : currentSong.title.replace(/\[.*?\]|\(.*?\)/g, '').trim();
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(searchBase + " official audio")}`);
-        const results = await res.json();
+        
+        let results = [];
+        
+        // 1. Yol: Google Öneri Algoritması Related API endpoint'ini dene
+        try {
+          const relatedRes = await fetch(`${import.meta.env.VITE_API_URL}/api/related?id=${currentSong.id}`);
+          if (relatedRes.ok) {
+            results = await relatedRes.json();
+          }
+        } catch (e) {
+          console.warn("Related endpoint başarısız, search parametresi deneniyor...");
+        }
+
+        // 2. Yol: Alternatif relatedToVideoId arama parametresini dene [1]
+        if (!results || results.length === 0) {
+          try {
+            const relatedSearchRes = await fetch(`${import.meta.env.VITE_API_URL}/api/search?relatedToVideoId=${currentSong.id}&type=video`);
+            if (relatedSearchRes.ok) {
+              results = await relatedSearchRes.json();
+            }
+          } catch (e) {
+             console.warn("Related search parametresi başarısız, kelime aramasına dönülüyor...");
+          }
+        }
+
+        // 3. Yol (Yedek): Eski tip sanatçı kelime aramasına geri dön
+        if (!results || results.length === 0) {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(searchBase + " official audio")}`);
+          results = await res.json();
+        }
+
         let validSongs = results.filter(r => !['haber', 'news', 'vlog', 'podcast', 'pizza'].some(w => r.title.toLowerCase().includes(w)) && !queue.some(q => q.id === r.id));
         if (validSongs.length > 0) { 
           const newSong = validSongs[Math.floor(Math.random() * Math.min(validSongs.length, 8))]; 

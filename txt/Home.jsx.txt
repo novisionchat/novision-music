@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MdPlayArrow, MdFavorite, MdTrendingUp, MdPublic, MdMoreVert } from 'react-icons/md';
+import { MdPlayArrow, MdFavorite, MdTrendingUp, MdPublic, MdMoreVert, MdAutoAwesome } from 'react-icons/md';
 import usePlayerStore from '../store/usePlayerStore';
 import useAuthStore from '../store/useAuthStore';
 import { db } from '../firebase';
@@ -120,6 +120,34 @@ const Home = () => {
           </div>
         </div>
 
+        {/* YENİLİK: SİZİN İÇİN KARIŞIM (DAILY MIX) KARTI */}
+        <div 
+          onClick={() => navigate('/playlist/daily_mix')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '15px', background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.05)', padding: '12px 18px', borderRadius: '12px',
+            cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', height: '74px'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+            e.currentTarget.style.transform = 'translateX(6px)';
+            e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.3)'; // Violet border
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+            e.currentTarget.style.transform = 'translateX(0)';
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+          }}
+        >
+          <div style={{ width: '50px', height: '50px', borderRadius: '8px', background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
+            <MdAutoAwesome size={28} color="white" />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <span style={{ fontSize: '15px', fontWeight: 'bold', color: 'white' }}>Sizin İçin Karışım</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Dinleme istatistiklerinize ve en çok çalınan parçalarınıza özel günlük liste</span>
+          </div>
+        </div>
+
       </div>
 
       <h3 style={{ fontSize: '20px', color: 'white', marginBottom: '15px', fontWeight: 'bold' }}>Yakın Zamanda Çalınanlar</h3>
@@ -128,7 +156,6 @@ const Home = () => {
       ) : (
         <div className="home-grid">
           {recentSongs.map((song, index) => {
-             // FOTOĞRAF DÜZELTMESİ EKLENDİ
              const displayThumb = (song.thumbnail || '').replace('hqdefault.jpg', 'mqdefault.jpg').replace('sddefault.jpg', 'mqdefault.jpg');
              return (
               <div key={`${song.id}-${index}`} className="home-card" onClick={() => playSong(song, recentSongs, index)}>
