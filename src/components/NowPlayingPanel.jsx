@@ -69,7 +69,7 @@ const formatTime = (time) => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
-// PANEL PROGRESS ALT BİLEŞENİ (Saniyede bir render'ı hapseder)
+// PANEL PROGRESS ALT BİLEŞENİ
 const PanelProgress = () => {
   const currentTime = usePlayerStore(s => s.currentTime);
   const duration = usePlayerStore(s => s.duration);
@@ -96,13 +96,121 @@ const PanelProgress = () => {
   );
 };
 
+// BÜTÜNLEŞİK SÖZ SATIRI BİLEŞENİ (Sıçrama/Snapping Engelleyici Akıcı Motor)
+const LyricLineComponent = React.memo(({ line, idx, seekTo, showTranslation, translatedLine }) => {
+  const activeLyricIndex = usePlayerStore(s => s.activeLyricIndex);
+  const lyrics = usePlayerStore(s => s.lyrics);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
+  const duration = usePlayerStore(s => s.duration);
+
+  const isActive = idx === activeLyricIndex;
+  const isPast = idx < activeLyricIndex;
+
+  const wordsRef = useRef([]);
+  const containerRef = useRef(null);
+
+  // Satırdaki kelimeleri ayıklıyoruz
+  const words = React.useMemo(() => line.text.split(' '), [line.text]);
+
+  // Kelime referans dizisini güncelliyoruz
+  useEffect(() => {
+    if (isActive) {
+      wordsRef.current = wordsRef.current.slice(0, words.length);
+    }
+  }, [words, isActive]);
+
+  // Kelime bazlı akıcı dolma motoru (Sadece aktifken çalışır)
+  useEffect(() => {
+    if (!isActive || !containerRef.current) return;
+
+    const nextLineTime = lyrics[idx + 1]?.time || duration || (line.time + 5);
+    const lineDuration = nextLineTime - line.time;
+
+    // Kelimelerin ilerleme yüzdelerini tek tek güncelleyen fonksiyon
+    const updateWordStyles = (elapsedSec) => {
+      const progressPercent = lineDuration > 0 ? Math.max(0, Math.min(100, (elapsedSec / lineDuration) * 100)) : 0;
+      const wCount = words.length;
+
+      for (let i = 0; i < wCount; i++) {
+        const start = (i / wCount) * 100;
+        const end = ((i + 1) / wCount) * 100;
+        const wordProgress = Math.max(0, Math.min(100, ((progressPercent - start) / (end - start)) * 100));
+
+        const wordEl = wordsRef.current[i];
+        if (wordEl) {
+          wordEl.style.setProperty('--word-progress', `${wordProgress}%`);
+        }
+      }
+    };
+
+    // Zamanı re-render'sız doğrudan store'dan çekerek sıfır gecikme elde ediyoruz
+    const storeTime = usePlayerStore.getState().currentTime;
+
+    if (!isPlaying) {
+      const elapsed = storeTime - line.time;
+      updateWordStyles(elapsed);
+      return;
+    }
+
+    let frameId;
+    const startTime = performance.now() - (storeTime - line.time) * 1000;
+
+    const update = () => {
+      const now = performance.now();
+      const elapsedSec = (now - startTime) / 1000;
+      updateWordStyles(elapsedSec);
+
+      if (elapsedSec < lineDuration) {
+        frameId = requestAnimationFrame(update);
+      }
+    };
+
+    frameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameId);
+  }, [isActive, isPlaying, idx, lyrics, duration, line.time, words]);
+
+  const lineClass = `lyric-line ${isActive ? 'active' : isPast ? 'past' : 'future'}`;
+
+  return (
+    <div 
+      ref={containerRef}
+      className={lineClass} 
+      onClick={() => seekTo(line.time)}
+    >
+      {isActive ? (
+        <div className="lyric-words-wrapper">
+          {words.map((word, i) => (
+            <span 
+              key={i} 
+              ref={el => wordsRef.current[i] = el}
+              className="lyric-word-sweep"
+            >
+              {word}{i < words.length - 1 ? ' ' : ''}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="lyric-text-static">{line.text}</span>
+      )}
+      
+      {showTranslation && translatedLine && translatedLine !== line.text && (
+        <div className="lyric-translation">
+          {translatedLine}
+        </div>
+      )}
+    </div>
+  );
+});
+
+LyricLineComponent.displayName = 'LyricLineComponent';
+
 // SÖZLER VE SIRA ALANI ALT BİLEŞENİ
 const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscapeWide, shouldExpandLyricsLayout }) => {
-  const [activeTab, setActiveTab] = useState('lyrics'); // 'lyrics' | 'queue'
+  const [activeTab, setActiveTab] = useState('lyrics'); 
   
   const lyrics = usePlayerStore(s => s.lyrics);
   const isLyricsLoading = usePlayerStore(s => s.isLyricsLoading);
-  const currentTime = usePlayerStore(s => s.currentTime);
+  const activeLyricIndex = usePlayerStore(s => s.activeLyricIndex);
   const seekTo = usePlayerStore(s => s.seekTo);
   const isPanelFullscreen = usePlayerStore(s => s.isPanelFullscreen);
 
@@ -130,10 +238,6 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
   const lyricsContainerRef = useRef(null);
 
   const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
-  const activeLyricIndex = safeLyrics.findIndex((l, i) => { 
-    const nextTime = safeLyrics[i + 1]?.time || Infinity; 
-    return currentTime >= l.time && currentTime < nextTime; 
-  });
 
   const displayList = React.useMemo(() => {
     if (isShuffle && shuffleOrder.length === queue.length) {
@@ -152,38 +256,44 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     }));
   }, [queue, isShuffle, shuffleOrder, shuffleCursor, currentIndex]);
 
-  // GELİŞTİRİLMİŞ GERÇEK VE MUTLAK DİKEY HİZALAMA MOTORU (Panel Üstü ile Player Bar Hizalaması)
+  // GELİŞTİRİLMİŞ GERÇEK VE MUTLAK DİKEY HİZALAMA MOTORU (Kayma Düzeltildi)
   useEffect(() => {
     if (activeLyricIndex !== -1 && lyricsContainerRef.current && activeTab === 'lyrics') {
       const container = lyricsContainerRef.current;
       const activeEl = container.querySelector('.lyric-line.active');
       
       if (activeEl) {
-        const containerRect = container.getBoundingClientRect();
-        const activeRect = activeEl.getBoundingClientRect();
-        const activeCenterY = activeRect.top + (activeRect.height / 2);
-        
-        let targetCenterY = 0;
-        
-        // 1. Yatay tam ekran (Landscape ve Fullscreen) modunda ekran dikey ortalanır
-        if (isPanelFullscreen && isLandscapeWide) {
-          targetCenterY = window.innerHeight / 2;
+        // Eğer şarkının başındaysak (ilk 2 satır) doğrudan en üste scroll yapıp ortalamayı engelliyoruz
+        if (activeLyricIndex <= 1) {
+          container.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+          });
         } else {
-          // 2. Tam ekran olmayan durumlarda veya dikey modda:
-          // Sözler tuşunun (kartın) en üstü ile en altı hesaplanıp tam ortasına dikey hizalama yapılır.
-          const card = container.closest('.lyrics-card');
-          if (card) {
-            const cardRect = card.getBoundingClientRect();
-            targetCenterY = cardRect.top + (cardRect.height / 2);
+          const containerRect = container.getBoundingClientRect();
+          const activeRect = activeEl.getBoundingClientRect();
+          const activeCenterY = activeRect.top + (activeRect.height / 2);
+          
+          let targetCenterY = 0;
+          
+          if (isPanelFullscreen && isLandscapeWide) {
+            targetCenterY = window.innerHeight / 2;
           } else {
-            // Yedek plan: Kart bulunamazsa container alanının ortası alınır
-            targetCenterY = containerRect.top + (containerRect.height / 2);
+            const card = container.closest('.lyrics-card');
+            if (card) {
+              const cardRect = card.getBoundingClientRect();
+              targetCenterY = cardRect.top + (cardRect.height / 2);
+            } else {
+              targetCenterY = containerRect.top + (containerRect.height / 2);
+            }
           }
-        }
 
-        // Mevcut kaydırma konumuna göre dikey hizalama elde edilir
-        const scrollPos = container.scrollTop + (activeCenterY - targetCenterY);
-        container.scrollTo({ top: scrollPos, behavior: 'smooth' });
+          const scrollPos = container.scrollTop + (activeCenterY - targetCenterY);
+          container.scrollTo({
+            top: Math.max(0, scrollPos),
+            behavior: 'smooth'
+          });
+        }
       }
     }
   }, [activeLyricIndex, isLyricsExpanded, activeTab, isLandscapeWide, isPanelFullscreen, shouldExpandLyricsLayout]);
@@ -212,6 +322,9 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
     setIsLangMenuOpen(false);
     translateCurrentLyrics(langCode);
   };
+
+  // İlk satırlarda bulanıklığı engellemek için dinamik sınıf kontrolü
+  const isAtStart = activeLyricIndex <= 1;
 
   return (
     <div className={`lyrics-card ${isLyricsExpanded ? 'expanded' : ''}`} onTouchStart={(e) => e.stopPropagation()}>
@@ -342,12 +455,12 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
           )}
 
           <div 
-            className="lyrics-content" 
+            className={`lyrics-content ${isAtStart ? 'is-at-start' : ''}`} 
             ref={lyricsContainerRef} 
             style={{ 
               display: 'flex', 
               flexDirection: 'column', 
-              paddingBottom: '60vh',
+              paddingBottom: '55vh',
               flex: isLyricsExpanded ? '1 1 0%' : 'unset',
               maxHeight: isLyricsExpanded ? '100%' : '40vh',
               overflowY: 'auto'
@@ -359,35 +472,17 @@ const LyricsPanelSection = ({ isLyricsExpanded, setIsLyricsExpanded, isLandscape
               <div className="lyrics-placeholder">Sözler çevriliyor...</div>
             ) : safeLyrics.length > 0 ? (
               safeLyrics.map((line, idx) => {
-                const isLineActive = idx === activeLyricIndex;
                 const translatedLine = translatedLyrics[idx]?.text;
 
                 return (
-                  <div 
-                    key={idx} 
-                    className={`lyric-line ${isLineActive ? 'active' : ''}`} 
-                    onClick={() => seekTo(line.time)}
-                  >
-                    <div>{line.text}</div>
-                    
-                    {showTranslation && translatedLine && translatedLine !== line.text && (
-                      <div 
-                        className="lyric-translation"
-                        style={{
-                          fontSize: '0.7em', 
-                          fontWeight: '500', 
-                          opacity: isLineActive ? 0.85 : 0.6,
-                          marginTop: '4px',
-                          lineHeight: '1.25',
-                          display: 'block',
-                          color: isLineActive ? 'white' : 'rgba(255,255,255,0.4)',
-                          transform: 'none'
-                        }}
-                      >
-                        {translatedLine}
-                      </div>
-                    )}
-                  </div>
+                  <LyricLineComponent
+                    key={idx}
+                    line={line}
+                    idx={idx}
+                    seekTo={seekTo}
+                    showTranslation={showTranslation}
+                    translatedLine={translatedLine}
+                  />
                 );
               })
             ) : (
@@ -527,16 +622,14 @@ const NowPlayingPanel = () => {
       return;
     }
 
-    // Arama sonuçlarından veya store üzerinden gelen mevcut görseli anında yerleştiriyoruz
     setImgSrc(currentSong.thumbnail || '/icon.png');
 
     let isMounted = true;
     
-    // YouTube'da çözünürlük derecelerine göre taranacak adresler
     const urlsToTest = [
-      `https://i.ytimg.com/vi/${currentSong.id}/maxresdefault.jpg`, // HD
-      `https://i.ytimg.com/vi/${currentSong.id}/sddefault.jpg`,     // SD
-      `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`      // HQ
+      `https://i.ytimg.com/vi/${currentSong.id}/maxresdefault.jpg`, 
+      `https://i.ytimg.com/vi/${currentSong.id}/sddefault.jpg`,     
+      `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`      
     ];
 
     let index = 0;
@@ -549,7 +642,6 @@ const NowPlayingPanel = () => {
       
       img.onload = () => {
         if (!isMounted) return;
-        // YouTube, talep edilen yüksek çözünürlüklü görsel bulunamadığında 120x90 yer tutucu resmi döndürür
         if (img.naturalWidth === 120 && img.naturalHeight === 90) {
           index++;
           testNextThumbnail();
@@ -659,7 +751,6 @@ const NowPlayingPanel = () => {
     setTouchStart(null);
   };
 
-  // Dikey modda veya sidebar modundayken sol sütunun gizlenerek sözlerin genişlemesini sağlayan akıllı reaktif koşul
   const shouldExpandLyricsLayout = isLyricsExpanded && !(isPanelFullscreen && isLandscapeWide);
 
   return (

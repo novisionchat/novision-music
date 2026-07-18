@@ -72,14 +72,16 @@ const parseSyncedLyrics = (syncedLyricsText) => {
   return parsed;
 };
 
-// --- KELİME BENZERLİK SKORU ALGORİTMASI (Overlap Coefficient) ---
-const getSimilarityScore = (str1, str2) => {
+// --- KELİME BENZERLİK SKORU ALGORİTMASI (Evrensel, Dil Bağımsız & Çift Algoritma Destekli) ---
+const getSimilarityScore = (str1, str2, type = 'jaccard') => {
   if (!str1 || !str2) return 0;
   
   const cleanAndSplit = (str) => {
     return str
       .toLowerCase()
-      .replace(/[^a-z0-9ıışşğğççööüü]/g, ' ')
+      .normalize("NFD")               // Aksanları ayrıştırır (örn: è -> e + ` işareti)
+      .replace(/\p{Diacritic}/gu, "") // Aksan işaretlerini tamamen temizler (geriye yalın harf kalır)
+      .replace(/[^\p{L}\p{N}]/gu, ' ') // Tüm dünya dillerindeki harfleri (\p{L}) ve sayıları (\p{N}) korur, gerisini boşluk yapar
       .split(/\s+/)
       .filter(Boolean);
   };
@@ -97,7 +99,14 @@ const getSimilarityScore = (str1, str2) => {
     if (w2.has(w)) intersection++;
   }
   
-  return intersection / Math.min(w1.size, w2.size);
+  // Overlap Coefficient: Sanatçılar için idealdir (örn: "Güneş" -> "Güneş, Lvbel C5" eşleşmesini korur)
+  if (type === 'overlap') {
+    return intersection / Math.min(w1.size, w2.size);
+  }
+  
+  // Jaccard Index: Şarkı başlıkları için idealdir (örn: "NKBI" -> "NKBI x Yapamam" yanlış eşleşmesini engeller)
+  const unionSize = w1.size + w2.size - intersection;
+  return intersection / unionSize;
 };
 
 // --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
@@ -115,8 +124,9 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
     }
   }
 
-  const titleScore = getSimilarityScore(searchedTitle, returnedTitle);
-  const artistScore = getSimilarityScore(searchedArtist, returnedArtist);
+  // Başlıklar için Jaccard (kesin), Sanatçılar için Overlap (esnek düet uyumlu) benzerlik kontrolü yapıyoruz
+  const titleScore = getSimilarityScore(searchedTitle, returnedTitle, 'jaccard');
+  const artistScore = getSimilarityScore(searchedArtist, returnedArtist, 'overlap');
 
   if (titleScore >= 0.75 && artistScore >= 0.5) {
     return true;
@@ -333,6 +343,7 @@ const usePlayerStore = create((set, get) => ({
   songToAdd: null, 
   isAddModalOpen: false,
   lyrics: [], 
+  activeLyricIndex: -1, // PERFORMANS: Aktif indeks takibi doğrudan store'da yapılır.
   isLyricsLoading: false, 
   isVideoMode: false,
   nativeProgressInterval: null,
@@ -994,17 +1005,23 @@ const usePlayerStore = create((set, get) => ({
       clearTimeout(state.lyricsTimeoutId);
     }
 
-    set({ lyrics: [], isLyricsLoading: true, lyricsTimeoutId: null });
+    set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: true, lyricsTimeoutId: null });
 
     const localData = state.downloadedSongs[song.id];
 
     if (localData && localData.metadata?.lyrics?.length > 0) {
-      set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
+      const l = localData.metadata.lyrics;
+      const t = state.currentTime;
+      const activeIdx = l.findIndex((line, i) => { 
+        const nextTime = l[i + 1]?.time || Infinity; 
+        return t >= line.time && t < nextTime; 
+      });
+      set({ lyrics: l, activeLyricIndex: activeIdx, isLyricsLoading: false });
       return;
     }
     
     if (!navigator.onLine) { 
-      set({ lyrics: [], isLyricsLoading: false }); 
+      set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false }); 
       return; 
     }
     
@@ -1032,13 +1049,20 @@ const usePlayerStore = create((set, get) => ({
               }
             });
           }
-          set({ lyrics: parsed, isLyricsLoading: false });
+
+          const t = get().currentTime;
+          const activeIdx = parsed.findIndex((line, i) => { 
+            const nextTime = parsed[i + 1]?.time || Infinity; 
+            return t >= line.time && t < nextTime; 
+          });
+
+          set({ lyrics: parsed, activeLyricIndex: activeIdx, isLyricsLoading: false });
         } else {
-          set({ lyrics: [], isLyricsLoading: false });
+          set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false });
         }
       } catch(e) {
         if (get().currentSong?.id === song.id) {
-          set({ lyrics: [], isLyricsLoading: false });
+          set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false });
         }
       }
     }, 1500);
@@ -1212,6 +1236,7 @@ const usePlayerStore = create((set, get) => ({
       currentIndex: index, 
       isPlaying: true, 
       currentTime: 0, 
+      activeLyricIndex: -1,
       history: newHistory, 
       historyCursor: newCursor, 
       activeEngine: nextEngine,
@@ -1289,7 +1314,9 @@ const usePlayerStore = create((set, get) => ({
               try {
                 const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
                 const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
-                if (timeRes && timeRes.currentTime !== undefined) set({ currentTime: timeRes.currentTime });
+                if (timeRes && timeRes.currentTime !== undefined) {
+                  get().setCurrentTime(timeRes.currentTime);
+                }
                 if (durRes && durRes.duration !== undefined && durRes.duration > 0) set({ duration: durRes.duration });
               } catch (e) {}
             }, 1000);
@@ -1340,12 +1367,31 @@ const usePlayerStore = create((set, get) => ({
   setCurrentTime: (time) => { 
     set({ currentTime: time }); 
     const state = get();
+
+    // Hızlı akan render'ları önlemek için aktif indeks değişim kontrolü
+    const safeLyrics = Array.isArray(state.lyrics) ? state.lyrics : [];
+    const newActiveIndex = safeLyrics.findIndex((l, i) => { 
+      const nextTime = safeLyrics[i + 1]?.time || Infinity; 
+      return time >= l.time && time < nextTime; 
+    });
+
+    if (newActiveIndex !== state.activeLyricIndex) {
+      set({ activeLyricIndex: newActiveIndex });
+    }
+
     if (state.duration > 0 && (state.duration - time) <= 15 && !state.isPrefetched) {
       get().prefetchNextSong();
     }
   },
   
-  setDuration: (time) => set({ duration: time }),
+  setDuration: (time) => {
+    set({ duration: time });
+    const state = get();
+    // Eğer oynatıcı süre bilgisini başarıyla aldıysa ve şarkı sözü henüz yüklenmediyse arama işlemini süre bilgisiyle tekrar başlatır
+    if (state.currentSong && state.lyrics.length === 0 && !state.isLyricsLoading && time > 0) {
+      state.fetchLyrics(state.currentSong);
+    }
+  },
   
   setVolume: (val) => { 
     const { playerRef, html5PlayerRef } = get(); 
@@ -1372,14 +1418,21 @@ const usePlayerStore = create((set, get) => ({
   },
   
   seekTo: (seconds) => { 
-    const { playerRef, html5PlayerRef, activeEngine } = get(); 
+    const { playerRef, html5PlayerRef, activeEngine, lyrics } = get(); 
     if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { playerRef.seekTo(seconds, true); } 
     else if (activeEngine === 'html5') {
       if (window.Capacitor && AudioPlayer) AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(seconds) });
       else if (html5PlayerRef) html5PlayerRef.currentTime = seconds;
       if (playerRef && playerRef.seekTo) playerRef.seekTo(seconds, true);
     }
-    set({ currentTime: seconds }); 
+
+    const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
+    const newActiveIndex = safeLyrics.findIndex((l, i) => { 
+      const nextTime = safeLyrics[i + 1]?.time || Infinity; 
+      return seconds >= l.time && seconds < nextTime; 
+    });
+
+    set({ currentTime: seconds, activeLyricIndex: newActiveIndex }); 
   },
 
   _getCurrentEngineTime: () => {

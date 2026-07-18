@@ -72,16 +72,16 @@ const parseSyncedLyrics = (syncedLyricsText) => {
   return parsed;
 };
 
-// --- KELİME BENZERLİK SKORU ALGORİTMASI (Evrensel, Dil Bağımsız & Çift Algoritma Destekli) ---
+// --- KELİME BENZERLİK SKORU ALGORİTMASI ---
 const getSimilarityScore = (str1, str2, type = 'jaccard') => {
   if (!str1 || !str2) return 0;
   
   const cleanAndSplit = (str) => {
     return str
       .toLowerCase()
-      .normalize("NFD")               // Aksanları ayrıştırır (örn: è -> e + ` işareti)
-      .replace(/\p{Diacritic}/gu, "") // Aksan işaretlerini tamamen temizler (geriye yalın harf kalır)
-      .replace(/[^\p{L}\p{N}]/gu, ' ') // Tüm dünya dillerindeki harfleri (\p{L}) ve sayıları (\p{N}) korur, gerisini boşluk yapar
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^\p{L}\p{N}]/gu, ' ')
       .split(/\s+/)
       .filter(Boolean);
   };
@@ -99,17 +99,15 @@ const getSimilarityScore = (str1, str2, type = 'jaccard') => {
     if (w2.has(w)) intersection++;
   }
   
-  // Overlap Coefficient: Sanatçılar için idealdir (örn: "Güneş" -> "Güneş, Lvbel C5" eşleşmesini korur)
   if (type === 'overlap') {
     return intersection / Math.min(w1.size, w2.size);
   }
   
-  // Jaccard Index: Şarkı başlıkları için idealdir (örn: "NKBI" -> "NKBI x Yapamam" yanlış eşleşmesini engeller)
   const unionSize = w1.size + w2.size - intersection;
   return intersection / unionSize;
 };
 
-// --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
+// --- SIKI DOĞRULAMA FİLTRESİ ---
 const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, result) => {
   if (!result) return false;
   
@@ -124,7 +122,6 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
     }
   }
 
-  // Başlıklar için Jaccard (kesin), Sanatçılar için Overlap (esnek düet uyumlu) benzerlik kontrolü yapıyoruz
   const titleScore = getSimilarityScore(searchedTitle, returnedTitle, 'jaccard');
   const artistScore = getSimilarityScore(searchedArtist, returnedArtist, 'overlap');
 
@@ -175,16 +172,15 @@ const getCandidatePairs = (channel, title) => {
   return uniquePairs;
 };
 
-// --- GELİŞTİRİLMİŞ ÇOK AŞAMALI ŞARKI SÖZÜ MOTORU ---
+// --- GELİŞTİRİLMİŞ ÇOK AŞAMALI ŞARKI SÖZÜ MOTORU (CORS preflight engeli çözüldü) ---
 const fetchLyricsFromLrcLib = async (channel, title, duration) => {
-  const userAgent = 'NovisionMusic v1.0.0 (https://github.com/novision/music)';
   const candidates = getCandidatePairs(channel, title);
   
   if (duration && duration > 0) {
     for (const cand of candidates) {
       try {
         const getUrl = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(cand.artist)}&track_name=${encodeURIComponent(cand.title)}&duration=${Math.round(duration)}`;
-        const getRes = await fetch(getUrl, { headers: { 'User-Agent': userAgent } });
+        const getRes = await fetch(getUrl);
         if (getRes.ok) {
           const data = await getRes.json();
           if (data && (data.syncedLyrics || data.plainLyrics || data.instrumental)) {
@@ -202,7 +198,7 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
   for (const cand of candidates) {
     try {
       const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.title)}&artist_name=${encodeURIComponent(cand.artist)}`;
-      const searchRes = await fetch(searchUrl, { headers: { 'User-Agent': userAgent } });
+      const searchRes = await fetch(searchUrl);
       if (searchRes.ok) {
         const data = await searchRes.json();
         if (data && data.length > 0) {
@@ -226,7 +222,7 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
   for (const cand of candidates) {
     try {
       const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(cand.artist + " " + cand.title)}`;
-      const queryRes = await fetch(queryUrl, { headers: { 'User-Agent': userAgent } });
+      const queryRes = await fetch(queryUrl);
       if (queryRes.ok) {
         const data = await queryRes.json();
         if (data && data.length > 0) {
@@ -250,7 +246,7 @@ const fetchLyricsFromLrcLib = async (channel, title, duration) => {
   try {
     const rawTitleClean = cleanTrackTitle(title);
     const queryUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(rawTitleClean)}`;
-    const queryRes = await fetch(queryUrl, { headers: { 'User-Agent': userAgent } });
+    const queryRes = await fetch(queryUrl);
     if (queryRes.ok) {
       const data = await queryRes.json();
       if (data && data.length > 0) {
@@ -297,21 +293,17 @@ const usePlayerStore = create((set, get) => ({
   downloadXHRs: {}, 
   downloadQueueList: [],
 
-  // --- AKILLI KARIŞIK ÇALMA VE ÖN YÜKLEME STATE TANIMLARI ---
   shuffleOrder: [],
   shuffleCursor: -1,
   isPrefetched: false,
   prefetchAudioObj: null,
 
-  // --- DEPOLAMA VE ÖNBELLEK STATE TANIMLARI ---
   totalStorageSize: "0.0 MB",
   downloadedFileSizes: {},
 
-  // --- GÜNLÜK KİŞİSEL KARIŞIM VE İSTATİSTİK STATE TANIMLARI ---
   dailyMix: null,
   isDailyMixLoading: false,
 
-  // --- BEĞENİLENLER SİSTEMİ ---
   likedSongs: [],
   setLikedSongs: (songs) => set({ likedSongs: songs || [] }),
   toggleLike: async (song) => {
@@ -343,11 +335,11 @@ const usePlayerStore = create((set, get) => ({
   songToAdd: null, 
   isAddModalOpen: false,
   lyrics: [], 
+  activeLyricIndex: -1,
   isLyricsLoading: false, 
   isVideoMode: false,
   nativeProgressInterval: null,
 
-  // --- ARKA PLAN / SES SİSTEMİ ÇEVİRİ DESTEĞİ ---
   translatedLyrics: [],
   isTranslationLoading: false,
   showTranslation: false,
@@ -373,7 +365,6 @@ const usePlayerStore = create((set, get) => ({
   toggleFullscreen: () => set((state) => ({ isPanelFullscreen: !state.isPanelFullscreen })),
   toggleRepeat: () => set((state) => ({ isRepeat: !state.isRepeat })),
 
-  // --- AKILLI KARIŞIK ÇALMA EYLEMLERİ ---
   toggleShuffle: () => {
     const state = get();
     const nextShuffle = !state.isShuffle;
@@ -401,7 +392,6 @@ const usePlayerStore = create((set, get) => ({
     set({ shuffleOrder: finalOrder, shuffleCursor: 0 });
   },
 
-  // --- SONRAKİ ŞARKIYI ÖN YÜKLEME (PRE-FETCHING) ---
   prefetchNextSong: async () => {
     const state = get();
     if (state.isPrefetched || !navigator.onLine) return;
@@ -440,7 +430,6 @@ const usePlayerStore = create((set, get) => ({
     set({ isPrefetched: true });
   },
 
-  // --- SIRADAKİ ŞARKILAR (QUEUE) SİSTEMİ ---
   removeFromQueue: (index) => {
     const { queue, currentIndex, playSong, isShuffle, shuffleOrder, shuffleCursor } = get();
     if (queue.length <= 1) {
@@ -521,7 +510,6 @@ const usePlayerStore = create((set, get) => ({
     }
   },
 
-  // --- DEPOLAMA BOYUTU VE TEMİZLEME KONTROLLERİ ---
   calculateStorageSize: async () => {
     const state = get();
     const { downloadedSongs } = state;
@@ -575,7 +563,6 @@ const usePlayerStore = create((set, get) => ({
     get().calculateStorageSize();
   },
 
-  // --- KİŞİSELLEŞTİRİLMİŞ GÜNLÜK KARIŞIM OLUŞTURUCU ---
   generateDailyMix: async (force = false) => {
     const state = get();
     try {
@@ -593,13 +580,11 @@ const usePlayerStore = create((set, get) => ({
       const playCounts = (await localforage.getItem('song_play_counts')) || {};
       const playCountArray = Object.values(playCounts);
 
-      // En çok dinlenen şarkılar (dinleme adedine göre azalan)
       const topPlayedSongs = [...playCountArray]
         .sort((a, b) => b.count - a.count)
         .slice(0, 8)
         .map(x => x.metadata);
 
-      // En çok dinlenen sanatçılar
       const artistCounts = {};
       playCountArray.forEach(x => {
         const artist = x.metadata.channel;
@@ -612,13 +597,11 @@ const usePlayerStore = create((set, get) => ({
         .slice(0, 4)
         .map(entry => entry[0]);
 
-      // Yetersiz geçmiş durumunda zenginleştirilmiş çoklu sanatçı yedek havuzu (Duman gibi tekli sanatçı kilitlenmelerini önler)
       if (playCountArray.length < 3 && navigator.onLine) {
         const defaultKeywords = ["Tarkan", "Sezen Aksu", "Madrigal", "Ezhel", "Duman", "Gripin", "Anıl Piyancı", "Sena Şener"];
         const shuffledKeywords = [...defaultKeywords].sort(() => Math.random() - 0.5);
         let fallbackPool = [];
 
-        // 3 farklı sanatçıdan popüler parçaları toplayıp harmanlayarak listeyi dengeliyoruz
         for (const kw of shuffledKeywords.slice(0, 3)) {
           try {
             const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(kw)}`);
@@ -655,7 +638,6 @@ const usePlayerStore = create((set, get) => ({
       let pool = [];
       const seenIds = new Set();
 
-      // 1. Favori parçaların benzerlerini çek
       for (const song of topPlayedSongs.slice(0, 4)) {
         try {
           let relatedRes = await fetch(`${import.meta.env.VITE_API_URL}/api/related?id=${song.id}`);
@@ -680,7 +662,6 @@ const usePlayerStore = create((set, get) => ({
         }
       }
 
-      // 2. Favori sanatçıların parçalarını çek
       for (const artist of topArtists.slice(0, 3)) {
         try {
           const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(artist)}`);
@@ -700,7 +681,6 @@ const usePlayerStore = create((set, get) => ({
         }
       }
 
-      // 3. Çok dinlenen mevcut şarkıları serpiştir
       topPlayedSongs.slice(0, 6).forEach(s => {
         if (!seenIds.has(s.id)) {
           seenIds.add(s.id);
@@ -840,7 +820,6 @@ const usePlayerStore = create((set, get) => ({
   updateLocalPlaylistName: (id, name) => { get().saveLocalPlaylists(get().localPlaylists.map(pl => pl.id === id ? { ...pl, name } : pl)); },
   deleteLocalPlaylist: (id) => { get().saveLocalPlaylists(get().localPlaylists.filter(pl => pl.id !== id)); },
 
-  // --- ÇALMA LİSTESİ SON OYNATMA ZAMANINI GÜNCELLEME SİSTEMİ ---
   updatePlaylistLastPlayed: async (playlistId, isLocal, user) => {
     if (playlistId === 'downloaded' || playlistId === 'liked' || playlistId === 'trend_tr' || playlistId === 'trend_global' || playlistId === 'daily_mix') {
       return; 
@@ -1004,20 +983,27 @@ const usePlayerStore = create((set, get) => ({
       clearTimeout(state.lyricsTimeoutId);
     }
 
-    set({ lyrics: [], isLyricsLoading: true, lyricsTimeoutId: null });
+    set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: true, lyricsTimeoutId: null });
 
     const localData = state.downloadedSongs[song.id];
 
     if (localData && localData.metadata?.lyrics?.length > 0) {
-      set({ lyrics: localData.metadata.lyrics, isLyricsLoading: false });
+      const l = localData.metadata.lyrics;
+      const t = state.currentTime;
+      const activeIdx = l.findIndex((line, i) => { 
+        const nextTime = l[i + 1]?.time || Infinity; 
+        return t >= line.time && t < nextTime; 
+      });
+      set({ lyrics: l, activeLyricIndex: activeIdx, isLyricsLoading: false });
       return;
     }
     
     if (!navigator.onLine) { 
-      set({ lyrics: [], isLyricsLoading: false }); 
+      set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false }); 
       return; 
     }
     
+    // Gecikme süresi 1500ms değerinden 300ms değerine düşürülerek Apple PWA'da anında yükleme sağlandı
     const timeoutId = setTimeout(async () => {
       if (get().currentSong?.id !== song.id) return;
 
@@ -1042,13 +1028,20 @@ const usePlayerStore = create((set, get) => ({
               }
             });
           }
-          set({ lyrics: parsed, isLyricsLoading: false });
+
+          const t = get().currentTime;
+          const activeIdx = parsed.findIndex((line, i) => { 
+            const nextTime = parsed[i + 1]?.time || Infinity; 
+            return t >= line.time && t < nextTime; 
+          });
+
+          set({ lyrics: parsed, activeLyricIndex: activeIdx, isLyricsLoading: false });
         } else {
-          set({ lyrics: [], isLyricsLoading: false });
+          set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false });
         }
       } catch(e) {
         if (get().currentSong?.id === song.id) {
-          set({ lyrics: [], isLyricsLoading: false });
+          set({ lyrics: [], activeLyricIndex: -1, isLyricsLoading: false });
         }
       }
     }, 1500);
@@ -1222,6 +1215,7 @@ const usePlayerStore = create((set, get) => ({
       currentIndex: index, 
       isPlaying: true, 
       currentTime: 0, 
+      activeLyricIndex: -1,
       history: newHistory, 
       historyCursor: newCursor, 
       activeEngine: nextEngine,
@@ -1299,7 +1293,9 @@ const usePlayerStore = create((set, get) => ({
               try {
                 const timeRes = await AudioPlayer.getCurrentTime({ audioId: 'novision-track' });
                 const durRes = await AudioPlayer.getDuration({ audioId: 'novision-track' });
-                if (timeRes && timeRes.currentTime !== undefined) set({ currentTime: timeRes.currentTime });
+                if (timeRes && timeRes.currentTime !== undefined) {
+                  get().setCurrentTime(timeRes.currentTime);
+                }
                 if (durRes && durRes.duration !== undefined && durRes.duration > 0) set({ duration: durRes.duration });
               } catch (e) {}
             }, 1000);
@@ -1311,26 +1307,29 @@ const usePlayerStore = create((set, get) => ({
         };
         runNativeAudio();
     } else {
-        setTimeout(() => {
-          const html5El = get().html5PlayerRef;
-          const ytEl = get().playerRef;
+        // iOS Safari / Apple PWA uyumluluğu için setTimeout kaldırıldı.
+        // Oynatma artık senkronize ve doğrudan etkileşim kancası (click call stack) üzerinden yürütülür.
+        const html5El = get().html5PlayerRef;
+        const ytEl = get().playerRef;
 
-          if (nextEngine === 'html5' && localData && html5El) {
-            let finalSrc = localData.localAudioUrl;
-            const isSameSong = html5El.getAttribute('data-song-id') === song.id;
-            if (!isSameSong) {
-              html5El.setAttribute('data-song-id', song.id);
-              html5El.src = finalSrc;
-              html5El.load();
-            }
-            html5El.play().catch(e => { set({ isPlaying: false }); });
-          } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
-            if (html5El) html5El.pause();
-            ytEl.unMute();
-            ytEl.setVolume(get().volume || 100);
-            ytEl.playVideo();
+        if (nextEngine === 'html5' && html5El) {
+          const finalSrc = localData ? localData.localAudioUrl : streamUrlToAssign;
+          const isSameSong = html5El.getAttribute('data-song-id') === song.id;
+          if (!isSameSong) {
+            html5El.setAttribute('data-song-id', song.id);
+            html5El.src = finalSrc;
+            html5El.load();
           }
-        }, 50);
+          html5El.play().catch(e => { 
+            console.warn("HTML5 ses oynatılamadı. iOS kısıtlaması olabilir:", e);
+            set({ isPlaying: false }); 
+          });
+        } else if (nextEngine === 'youtube' && ytEl && typeof ytEl.playVideo === 'function') {
+          if (html5El) html5El.pause();
+          ytEl.unMute();
+          ytEl.setVolume(get().volume || 100);
+          ytEl.playVideo();
+        }
     }
 
     get().fetchLyrics(song);
@@ -1350,6 +1349,17 @@ const usePlayerStore = create((set, get) => ({
   setCurrentTime: (time) => { 
     set({ currentTime: time }); 
     const state = get();
+
+    const safeLyrics = Array.isArray(state.lyrics) ? state.lyrics : [];
+    const newActiveIndex = safeLyrics.findIndex((l, i) => { 
+      const nextTime = safeLyrics[i + 1]?.time || Infinity; 
+      return time >= l.time && time < nextTime; 
+    });
+
+    if (newActiveIndex !== state.activeLyricIndex) {
+      set({ activeLyricIndex: newActiveIndex });
+    }
+
     if (state.duration > 0 && (state.duration - time) <= 15 && !state.isPrefetched) {
       get().prefetchNextSong();
     }
@@ -1358,7 +1368,6 @@ const usePlayerStore = create((set, get) => ({
   setDuration: (time) => {
     set({ duration: time });
     const state = get();
-    // Eğer oynatıcı süre bilgisini başarıyla aldıysa ve şarkı sözü henüz yüklenmediyse arama işlemini süre bilgisiyle tekrar başlatır
     if (state.currentSong && state.lyrics.length === 0 && !state.isLyricsLoading && time > 0) {
       state.fetchLyrics(state.currentSong);
     }
@@ -1389,14 +1398,21 @@ const usePlayerStore = create((set, get) => ({
   },
   
   seekTo: (seconds) => { 
-    const { playerRef, html5PlayerRef, activeEngine } = get(); 
+    const { playerRef, html5PlayerRef, activeEngine, lyrics } = get(); 
     if (activeEngine === 'youtube' && playerRef && playerRef.seekTo) { playerRef.seekTo(seconds, true); } 
     else if (activeEngine === 'html5') {
       if (window.Capacitor && AudioPlayer) AudioPlayer.seek({ audioId: 'novision-track', timeInSeconds: Math.floor(seconds) });
       else if (html5PlayerRef) html5PlayerRef.currentTime = seconds;
       if (playerRef && playerRef.seekTo) playerRef.seekTo(seconds, true);
     }
-    set({ currentTime: seconds }); 
+
+    const safeLyrics = Array.isArray(lyrics) ? lyrics : [];
+    const newActiveIndex = safeLyrics.findIndex((l, i) => { 
+      const nextTime = safeLyrics[i + 1]?.time || Infinity; 
+      return seconds >= l.time && seconds < nextTime; 
+    });
+
+    set({ currentTime: seconds, activeLyricIndex: newActiveIndex }); 
   },
 
   _getCurrentEngineTime: () => {
@@ -1418,7 +1434,6 @@ const usePlayerStore = create((set, get) => ({
 
     if (queue.length === 0) return;
     
-    // 1. GEÇMİŞ (HISTORY) İLERİ AKIŞI
     if (historyCursor < history.length - 1) {
       const nextCursor = historyCursor + 1; const nextSong = history[nextCursor];
       if(!nextSong) return;
@@ -1489,7 +1504,6 @@ const usePlayerStore = create((set, get) => ({
         
         let results = [];
         
-        // 1. Yol: Google Öneri Algoritması Related API endpoint'ini dene
         try {
           const relatedRes = await fetch(`${import.meta.env.VITE_API_URL}/api/related?id=${currentSong.id}`);
           if (relatedRes.ok) {
@@ -1499,7 +1513,6 @@ const usePlayerStore = create((set, get) => ({
           console.warn("Related endpoint başarısız, search parametresi deneniyor...");
         }
 
-        // 2. Yol: Alternatif relatedToVideoId arama parametresini dene [1]
         if (!results || results.length === 0) {
           try {
             const relatedSearchRes = await fetch(`${import.meta.env.VITE_API_URL}/api/search?relatedToVideoId=${currentSong.id}&type=video`);
@@ -1511,7 +1524,6 @@ const usePlayerStore = create((set, get) => ({
           }
         }
 
-        // 3. Yol (Yedek): Eski tip sanatçı kelime aramasına geri dön
         if (!results || results.length === 0) {
           const res = await fetch(`${import.meta.env.VITE_API_URL}/api/search?q=${encodeURIComponent(searchBase + " official audio")}`);
           results = await res.json();
@@ -1547,7 +1559,6 @@ const usePlayerStore = create((set, get) => ({
 
     if (_getCurrentEngineTime() > 3) { _seekCurrentEngineToZero(); return; }
     
-    // 2. GEÇMİŞ (HISTORY) GERİ AKIŞI
     if (historyCursor > 0) {
       const prevCursor = historyCursor - 1; const prevSong = history[prevCursor];
       if(!prevSong) return;
