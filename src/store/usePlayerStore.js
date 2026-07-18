@@ -72,14 +72,16 @@ const parseSyncedLyrics = (syncedLyricsText) => {
   return parsed;
 };
 
-// --- KELİME BENZERLİK SKORU ALGORİTMASI (Overlap Coefficient) ---
-const getSimilarityScore = (str1, str2) => {
+// --- KELİME BENZERLİK SKORU ALGORİTMASI (Evrensel, Dil Bağımsız & Çift Algoritma Destekli) ---
+const getSimilarityScore = (str1, str2, type = 'jaccard') => {
   if (!str1 || !str2) return 0;
   
   const cleanAndSplit = (str) => {
     return str
       .toLowerCase()
-      .replace(/[^a-z0-9ıışşğğççööüü]/g, ' ')
+      .normalize("NFD")               // Aksanları ayrıştırır (örn: è -> e + ` işareti)
+      .replace(/\p{Diacritic}/gu, "") // Aksan işaretlerini tamamen temizler (geriye yalın harf kalır)
+      .replace(/[^\p{L}\p{N}]/gu, ' ') // Tüm dünya dillerindeki harfleri (\p{L}) ve sayıları (\p{N}) korur, gerisini boşluk yapar
       .split(/\s+/)
       .filter(Boolean);
   };
@@ -97,7 +99,14 @@ const getSimilarityScore = (str1, str2) => {
     if (w2.has(w)) intersection++;
   }
   
-  return intersection / Math.min(w1.size, w2.size);
+  // Overlap Coefficient: Sanatçılar için idealdir (örn: "Güneş" -> "Güneş, Lvbel C5" eşleşmesini korur)
+  if (type === 'overlap') {
+    return intersection / Math.min(w1.size, w2.size);
+  }
+  
+  // Jaccard Index: Şarkı başlıkları için idealdir (örn: "NKBI" -> "NKBI x Yapamam" yanlış eşleşmesini engeller)
+  const unionSize = w1.size + w2.size - intersection;
+  return intersection / unionSize;
 };
 
 // --- SIKI DOĞRULAMA FİLTRESİ (Yalancı Eşleşmeleri Önler) ---
@@ -115,8 +124,9 @@ const verifyLyricsMatch = (searchedArtist, searchedTitle, searchedDuration, resu
     }
   }
 
-  const titleScore = getSimilarityScore(searchedTitle, returnedTitle);
-  const artistScore = getSimilarityScore(searchedArtist, returnedArtist);
+  // Başlıklar için Jaccard (kesin), Sanatçılar için Overlap (esnek düet uyumlu) benzerlik kontrolü yapıyoruz
+  const titleScore = getSimilarityScore(searchedTitle, returnedTitle, 'jaccard');
+  const artistScore = getSimilarityScore(searchedArtist, returnedArtist, 'overlap');
 
   if (titleScore >= 0.75 && artistScore >= 0.5) {
     return true;
@@ -1345,7 +1355,14 @@ const usePlayerStore = create((set, get) => ({
     }
   },
   
-  setDuration: (time) => set({ duration: time }),
+  setDuration: (time) => {
+    set({ duration: time });
+    const state = get();
+    // Eğer oynatıcı süre bilgisini başarıyla aldıysa ve şarkı sözü henüz yüklenmediyse arama işlemini süre bilgisiyle tekrar başlatır
+    if (state.currentSong && state.lyrics.length === 0 && !state.isLyricsLoading && time > 0) {
+      state.fetchLyrics(state.currentSong);
+    }
+  },
   
   setVolume: (val) => { 
     const { playerRef, html5PlayerRef } = get(); 
